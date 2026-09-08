@@ -85,9 +85,8 @@ Create `credentials.txt` in the repo root:
 ### Verifying credentials
 
 ```bash
-# CLI — check if auth works
-sustech tis session check
-sustech bb session check
+# CLI — verify stored credentials against CAS
+sustech sso check
 
 # Python — ensure() returns (ok: bool, reason: str)
 from sustech_survival.sso import TISAuth

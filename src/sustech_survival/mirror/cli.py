@@ -238,7 +238,7 @@ def syllabus_list_departments():
 def syllabus_batch(semester, out_dir, overwrite, limit, dry_run, extract):
     """Bulk-fetch every unique course from your TIS history.
 
-    Requires a working TIS login (``sustech tis session refresh`` first).
+    Requires valid TIS credentials (auth runs automatically via TISAuth.ensure()).
     Without auth, run with --dry-run against a TIS-free environment to
     preview the course code list (currently unsupported; --dry-run still
     requires auth because it reads your grade history).
@@ -254,8 +254,9 @@ def syllabus_batch(semester, out_dir, overwrite, limit, dry_run, extract):
         sys.exit(1)
     if not ok:
         click.secho(
-            f"❌ TIS login required for --batch (mirror has no per-student "
-            f"history). Run `sustech tis session refresh` first.\n   reason: {reason}",
+            f"❌ TIS auth failed for --batch (mirror has no per-student "
+            f"history; re-login was automatic).\n   reason: {reason}\n"
+            f"   diagnose: `sustech sso check`",
             fg="red",
         )
         sys.exit(1)
@@ -507,7 +508,7 @@ def course_cmd(code, as_text, include_raw):
     use ``sustech mirror syllabus text`` when you need the prose syllabus
     (description, weekly outline, assessment).
 
-    Requires a TIS session (``sustech tis session refresh`` first).
+    Requires valid TIS credentials (auth runs automatically).
     Returns the data as JSON (or --text for a one-line-per-field view).
     """
     import json as _json

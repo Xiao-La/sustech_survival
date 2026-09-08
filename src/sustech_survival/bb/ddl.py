@@ -45,7 +45,7 @@ def api(path: str, session=None):
     url = "https://bb.sustech.edu.cn" + path
     r = session.get(url, timeout=15)
     if r.status_code == 401:
-        raise _SessionExpired("BB session expired after refresh — run `bb session login` manually")
+        raise _SessionExpired("BB auth failed (401 after refresh) — credentials may be wrong; diagnose with `sustech sso check`")
     r.raise_for_status()
     return r.json()
 

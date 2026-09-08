@@ -77,12 +77,12 @@ def test_current_week_empty_body_raises_actionable_error(fake_week_response):
     assert "--zc" in msg and "--all" in msg
 
 
-def test_current_week_auth_page_suggests_session_refresh(fake_week_response):
+def test_current_week_auth_page_suggests_credential_check(fake_week_response):
     """Stale session: TIS returns a JSON 'please log in again' page."""
     fake_week_response('{"content":"\u8bf7\u7528\u6237\u91cd\u65b0\u767b\u5f55\u9875\u9762"}')
     with pytest.raises(APIError) as ei:
         schedule_mod.current_week()
-    assert "session refresh" in str(ei.value)
+    assert "sustech sso check" in str(ei.value)
 
 
 def test_current_week_garbage_body_raises_api_error_not_valueerror(fake_week_response):
@@ -127,10 +127,10 @@ def test_schedule_cmd_no_current_week_prints_hint_not_traceback(fake_week_respon
     assert "--all" in result.output
 
 
-def test_schedule_cmd_stale_session_prints_refresh_hint(fake_week_response):
+def test_schedule_cmd_stale_session_prints_auth_hint(fake_week_response):
     fake_week_response('{"content":"\u8bf7\u7528\u6237\u91cd\u65b0\u767b\u5f55\u9875\u9762"}')
     runner = CliRunner()
     result = runner.invoke(tis_cli.cli, ["schedule"])
     assert result.exit_code == 1
     assert "Traceback" not in result.output
-    assert "session refresh" in result.output
+    assert "sustech sso check" in result.output

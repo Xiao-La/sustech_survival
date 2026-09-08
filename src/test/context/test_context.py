@@ -393,7 +393,7 @@ def test_fetch_next_exam_returns_auth_error_on_session_expired():
         result = fetch_next_exam()
     assert result is not None
     assert result["error"] == "auth"
-    assert "tis session refresh" in result["hint"]
+    assert "sustech sso check" in result["hint"]
 
 
 def test_context_next_exam_property_lazy_caches():

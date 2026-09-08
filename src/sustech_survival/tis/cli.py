@@ -115,46 +115,6 @@ def cli():
     pass
 
 
-# -- Session commands ----------------------------------------------------------
-
-@cli.command(name="session")
-@click.argument("cmd", default="check", type=click.Choice(["check", "refresh", "login"]))
-def session_cmd(cmd):
-    """
-    Manage TIS session.
-
-    Examples:
-      tis.py session          # check
-      tis.py session check   # same
-      tis.py session refresh # re-authenticate via CAS (headless)
-      tis.py session login   # manual browser login
-    """
-    auth = TISAuth()
-    if cmd == "check":
-        ok, reason = auth.check()
-        if ok:
-            click.secho("✅  Session valid (in-memory)", fg="green")
-        else:
-            click.secho(f"❌  {reason}", fg="red")
-            sys.exit(1)
-    elif cmd == "refresh":
-        click.secho("Refreshing session via CAS...", fg="cyan")
-        ok = auth.refresh()
-        if ok:
-            click.secho("✅  Session refreshed", fg="green")
-        else:
-            click.secho("❌  Refresh failed. Try: tis.py session login", fg="red")
-            sys.exit(1)
-    elif cmd == "login":
-        click.secho("Opening browser for manual CAS login...", fg="cyan")
-        ok = auth.login()
-        if ok:
-            click.secho("✅  Login complete", fg="green")
-        else:
-            click.secho("⚠️  Login incomplete — captcha may be required", fg="yellow")
-            sys.exit(1)
-
-
 # -- Courses -------------------------------------------------------------------
 
 @cli.command(name="courses")
@@ -389,7 +349,9 @@ def evals_cmd(pending):
         timeout=15,
     )
     if r.status_code == 401:
-        click.secho("❌  Session expired. Run: tis.py session refresh", fg="red")
+        click.secho("❌  TIS rejected the session (expired). Re-run the command - "
+                    "auth retries automatically; if it persists, run `sustech sso check`.",
+                    fg="red")
         sys.exit(1)
     if r.status_code != 200:
         click.secho(f"❌  API error {r.status_code}", fg="red")

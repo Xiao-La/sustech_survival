@@ -77,7 +77,7 @@ command name.
 ```bash
 sustech context --json
 sustech tis courses
-sustech bb session check
+sustech sso check            # verify credentials (diagnostics only)
 ```
 
 The `sustech` command comes from this package. If the TypeScript port

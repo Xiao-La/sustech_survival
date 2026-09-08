@@ -745,7 +745,7 @@ def auto_fill(
     """
     auth = TISAuthEval()
     if not auth.refresh():
-        return {"error": "auth", "message": "TIS auth refresh failed", "hint": "sustech tis session refresh"}
+        return {"error": "auth", "message": "TIS auth refresh failed", "hint": "sustech sso check"}
     return auth.auto_fill(xnxq=xnxq, courses=courses, score=score, text=text)
 
 def lazy_submit(
@@ -761,5 +761,5 @@ def lazy_submit(
     """
     auth = TISAuthEval()
     if not auth.refresh():
-        return {"error": "auth", "message": "TIS auth refresh failed", "hint": "sustech tis session refresh"}
+        return {"error": "auth", "message": "TIS auth refresh failed", "hint": "sustech sso check"}
     return auth.lazy_submit(xnxq=xnxq, courses=courses, score=score, text=text)

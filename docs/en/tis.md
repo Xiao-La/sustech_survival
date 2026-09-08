@@ -33,9 +33,9 @@ def fetch_exams(auth=None):
 ```
 
 ```bash
-# CLI — verify and manage the TIS session
-sustech tis session check     # verify credentials work
-sustech tis session refresh   # force re-login
+# CLI — auth is automatic (ensure()); diagnose only when something fails
+sustech sso check             # verify credentials against CAS
+sustech sso creds set         # write / update the credentials file
 ```
 
 ---

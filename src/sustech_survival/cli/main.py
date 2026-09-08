@@ -908,18 +908,74 @@ def webui_set_skin(name: str) -> None:
 # context — daily-use snapshot (inline, no module cli.py)
 # ========================================================================
 
-@click.command(name="context", help="What's happening right now.")
+@click.group(name="context", invoke_without_command=True,
+             help="What's happening right now.")
 @click.option("--level", "-l", type=click.Choice(["terse", "normal", "verbose"]),
               default="terse", show_default=True)
 @click.option("--json", "as_json", is_flag=True, help="Emit JSON.")
-def context_cmd(level: str, as_json: bool) -> None:
-    from ..context import Context
-    ctx = Context()
+@click.pass_context
+def context_cmd(ctx: click.Context, level: str, as_json: bool) -> None:
+    """Daily-use snapshot: date, week, classes, deadlines, weather.
+
+    ``sustech context`` alone (or with -l/--json) prints the snapshot.
+    ``sustech context courses next|last <course>`` answers session dates for
+    one specific course from the TIS timetable.
+    """
+    ctx.ensure_object(dict)
+    ctx.obj["level"] = level
+    ctx.obj["as_json"] = as_json
+    if ctx.invoked_subcommand is None:
+        from ..context import Context
+        snap = Context()
+        if as_json:
+            click.echo(_json.dumps(snap.to_dict(level=level),
+                                   ensure_ascii=False, indent=2))
+        else:
+            click.echo(snap.to_str(level=level))
+
+
+@context_cmd.group(name="courses",
+                   help="Session dates (next/last) of one course.")
+def context_courses() -> None:
+    """Per-course session dates from your TIS timetable (read-only)."""
+
+
+def _emit_course_when(course: str, when: str, as_json: bool) -> None:
+    from ..context.courses import render
+    res = render(course, when)
     if as_json:
-        click.echo(_json.dumps(ctx.to_dict(level=level),
-                               ensure_ascii=False, indent=2))
-    else:
-        click.echo(ctx.to_str(level=level))
+        click.echo(_json.dumps(res, ensure_ascii=False, indent=2))
+        return
+    if not res["ok"]:
+        click.secho(res["text"], fg="red")
+        raise SystemExit(1)
+    click.secho(res["text"], fg="green")
+
+
+@context_courses.command(name="next",
+                         help="Next upcoming session date + week of a course.")
+@click.argument("course")
+@click.option("--json", "as_json", is_flag=True, help="Emit JSON.")
+def context_courses_next(course: str, as_json: bool) -> None:
+    """Print the next (>= today) session date + academic week of COURSE.
+
+    The course name is matched fuzzily against your TIS timetable (Chinese or
+    English). Week number comes from TIS, not from the user.
+    """
+    _emit_course_when(course, "next", as_json)
+
+
+@context_courses.command(name="last",
+                         help="Most recent session date + week of a course.")
+@click.argument("course")
+@click.option("--json", "as_json", is_flag=True, help="Emit JSON.")
+def context_courses_last(course: str, as_json: bool) -> None:
+    """Print the most recent (<= today) session date + academic week of COURSE.
+
+    The course name is matched fuzzily against your TIS timetable (Chinese or
+    English). Week number comes from TIS, not from the user.
+    """
+    _emit_course_when(course, "last", as_json)
 
 
 @click.command(name="profile", help="Fill and write the user's SUSTech profile.")

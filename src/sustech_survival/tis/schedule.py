@@ -37,7 +37,7 @@ def current_semester() -> dict:
     Raises:
         APIError: TIS returned an empty body (server unreachable /
             session gone) or an error-page JSON without XN/XQ (stale
-            session — run ``sustech tis session refresh``).
+            session — auth re-runs automatically on the next call).
     """
     sess = session()
     r = sess.post('https://tis.sustech.edu.cn/component/querydangqianxnxq',
@@ -58,8 +58,7 @@ def current_semester() -> dict:
         # info. Surface that clearly instead of a raw KeyError downstream.
         snippet = body[:200] if body else '(empty body)'
         raise APIError('TIS did not report the current semester (server '
-                       'said: %s). The session may have expired — run '
-                       '`sustech tis session refresh` and retry.' % snippet)
+                       'said: %s). The session may have expired — auth retries automatically on the next run; if it persists, run `sustech sso check`.' % snippet)
     return sem
 
 
@@ -92,7 +91,7 @@ def current_week() -> int:
         snippet = body[:160] if body else '(empty body)'
         raise APIError(
             'TIS session is not accepted for the schedule query (server '
-            'said: %s). Run `sustech tis session refresh` and retry.' % snippet
+            'said: %s). Auth retries automatically on the next run; if it persists, run `sustech sso check`.' % snippet
         )
     # Empty body = term not started (every schedule row still 待生效 and
     # there is no "current week" yet). Point at the escape hatches that

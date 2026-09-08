@@ -59,7 +59,7 @@ def load_session_or_exit():
         click.secho(f"\n❌  Session error: {e}", fg="red")
         sys.exit(1)
     except FileNotFoundError:
-        click.secho("\n❌  No session. Run: python3 bb.py session login", fg="red")
+        click.secho("\n❌  No credentials found - configure them with `sustech sso creds set`.", fg="red")
         sys.exit(1)
 
 
@@ -223,41 +223,6 @@ def single_assignment(ctx, session_cookies, numeric_cid,
 def cli(ctx):
     """BB CLI - SUSTech Blackboard Assignment Automation"""
     ctx.ensure_object(dict)
-
-
-# -- Session commands --------------------------------------------------------
-
-@cli.command(name="session")
-@click.argument("cmd", default="check", type=click.Choice(["check", "login", "refresh"]))
-def session_cmd(cmd):
-    """
-    Manage BB session: check, login, or refresh.
-
-    Examples:
-      bb.py session          # check session validity
-      bb.py session check   # same as above
-      bb.py session refresh # re-authenticate via CAS
-      bb.py session login   # manual browser login
-    """
-    if cmd == "check":
-        ok, reason = bb_auth.check()
-        if ok:
-            click.secho("✅ Session valid", fg="green")
-        else:
-            click.secho(f"❌ {reason}", fg="red")
-            sys.exit(1)
-    elif cmd == "refresh":
-        click.secho("Refreshing session via CAS...", fg="cyan")
-        ok = bb_auth.refresh()
-        if ok:
-            click.secho("✅ Session refreshed", fg="green")
-        else:
-            click.secho("❌ Refresh failed. Try: bb.py session login", fg="red")
-            sys.exit(1)
-    elif cmd == "login":
-        click.secho("Opening browser for manual CAS login...", fg="cyan")
-        bb_auth.login()
-        click.secho("✅ Login complete", fg="green")
 
 
 @cli.command(name="courses")

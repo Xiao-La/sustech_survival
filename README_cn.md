@@ -135,7 +135,7 @@ sustech pms check                      # 校验 PMS 认证
 sustech bb --help                      # 列出 bb 子命令
 ```
 
-> 说明：目前**没有** `sustech <服务> session login|check|refresh` 这类子命令（README 早先写的不存在）。请在 Python 里用 `ensure()` / `auth.check()`，或用上面各模块的只读命令。
+> 会话完全自动管理，**没有** `sustech <服务> session login|check|refresh` 这类子命令：每次调用都经 `ensure()` 自动登录、过期自动续期，后端静默处理。只有凭据本身出问题时才需要干预 —— 用 `sustech sso check` 诊断，`sustech sso creds set` 重设。
 
 ### 4. 示例用法
 

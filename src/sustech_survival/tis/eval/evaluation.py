@@ -231,7 +231,7 @@ class Evaluation:
         from sustech_survival.sso import TISAuth
         auth = TISAuth()
         if not auth.refresh():
-            raise RuntimeError("TIS auth refresh failed — run: sustech tis session refresh")
+            raise RuntimeError("TIS auth refresh failed — diagnose with `sustech sso check`")
         sess = auth.session
         BASE = TISAuth.BASE_URL
         body1 = self.build_save_body(pjlx="1")

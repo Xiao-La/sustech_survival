@@ -33,9 +33,9 @@ def fetch_deadlines(auth=None):
 ```
 
 ```bash
-# CLI — verify and manage the BB session
-sustech bb session check      # verify credentials work
-sustech bb session refresh    # force re-login
+# CLI — auth is automatic (ensure()); diagnose only when something fails
+sustech sso check             # verify credentials against CAS
+sustech sso creds set         # write / update the credentials file
 ```
 
 Sessions are kept in memory only. Auto-refresh on stale response (HTTP 401).

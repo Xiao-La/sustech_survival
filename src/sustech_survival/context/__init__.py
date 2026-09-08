@@ -396,7 +396,7 @@ def get_schedule_reminder(ts: float) -> dict:
 def fetch_next_deadline() -> Optional[dict]:
     """Get nearest BB assignment with due date. Returns {name, due, days_left}.
 
-    On auth failure returns {"error": "auth", "hint": "bb session refresh"} so agents
+    On auth failure returns {"error": "auth", "hint": "sustech sso check"} so agents
     know exactly what to do without guessing.
     """
     from sustech_survival.bb.ddl import upcoming_deadlines
@@ -409,7 +409,7 @@ def fetch_next_deadline() -> Optional[dict]:
             return {"name": d["name"], "due": d["due"], "days_left": d["days_left"]}
         return None
     except SessionExpired as e:
-        return {"error": "auth", "message": str(e), "hint": "bb session refresh"}
+        return {"error": "auth", "message": str(e), "hint": "sustech sso check"}
     except Exception:
         return None
 
@@ -417,7 +417,7 @@ def fetch_next_deadline() -> Optional[dict]:
 def fetch_next_exam() -> Optional[dict]:
     """Get nearest TIS exam by date. Returns {name, code, date, time, building, room}.
 
-    On auth failure returns {"error": "auth", "hint": "tis session refresh"} so agents
+    On auth failure returns {"error": "auth", "hint": "sustech sso check"} so agents
     know exactly what to do without guessing. Matches fetch_next_deadline / fetch_next_eval
     shape for Context integration.
     """
@@ -426,7 +426,7 @@ def fetch_next_exam() -> Optional[dict]:
     auth = TISAuth()
     ok, msg = auth.ensure()
     if not ok:
-        return {"error": "auth", "message": msg, "hint": "tis session refresh"}
+        return {"error": "auth", "message": msg, "hint": "sustech sso check"}
 
     try:
         exams = fetch_exams(auth)
