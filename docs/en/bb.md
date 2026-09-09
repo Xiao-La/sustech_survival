@@ -45,10 +45,17 @@ Sessions are kept in memory only. Auto-refresh on stale response (HTTP 401).
 ## CLI
 
 ```bash
-sustech bb courses            # list enrolled courses
+sustech bb courses            # list enrolled courses (REST, fast)
 sustech bb courses --query MSE  # filter by keyword
 sustech bb search --course MSE306 --has-attachments  # find attachments
 sustech bb types              # list content types per course
+sustech bb page 629844 -c 8534 -v   # items on a BB content page (URL ids stripped)
+sustech bb download <content_id> …  # fetch course-material files
+sustech bb course <course> assignment <aid> [attempt] [--download]  # submissions
+sustech bb submit <content_id> <file> --course <id> --name "<sid>-<name>-…" --yes
+
+# BB content-page URL → command:
+#   …/listContent.jsp?course_id=_8534_1&content_id=_629844_1 → sustech bb page 629844 -c 8534
 ```
 
 ---

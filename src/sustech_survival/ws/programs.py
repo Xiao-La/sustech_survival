@@ -259,9 +259,9 @@ def get_program_detail(
         list_url = f"{WS_BASE}/StudentExchange_2247/GetShortProjectListForStudent.do"
         found_code: str | None = None
         found_token: str | None = None
-        for pg in range(1, 4):
+        for pg in range(1, 6):
             params = {
-                "pageSize": 20,
+                "pageSize": 100,
                 "currentPageIndex": pg,
                 "ts": ts,
                 "userToken": tok,
@@ -341,7 +341,13 @@ def parse_detail_html(html: str) -> dict[str, Any]:
             <p class="p"><strong>Label：&nbsp;&nbsp;</strong></p>   ← value on next <p>
             <p class="p"><strong>Next Label：&nbsp;&nbsp;</strong>Value</p>
         </blockquote>
+
+    Tooltip labels ("等N个时间") and icon spans carry raw "<...>" inside their
+    attribute values, which breaks naive tag stripping and leaks attribute
+    debris into parsed values — drop the whole elements first.
     """
+    html = re.sub(r"<label\b[\s\S]*?</label>", "", html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r"<i\b[^>]*>[\s\S]*?</i>", "", html, flags=re.DOTALL | re.IGNORECASE)
     sections: dict[str, dict[str, str]] = {}
 
     blocks = re.split(

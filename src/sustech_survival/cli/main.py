@@ -130,9 +130,15 @@ def nces_cmd() -> None:
     pass
 
 
+@click.group(name="cle", help="语言中心语言指导服务 — ehall CLE tutoring reservations.")
+def cle_cmd() -> None:
+    pass
+
+
 _mount("bb", bb_cmd)
 _mount("tis", tis_cmd)
 _mount("nces", nces_cmd)
+_mount("ehall.cle", cle_cmd)
 _mount_into(tis_cmd, "classroom", "tis.classroom")
 
 
@@ -1445,6 +1451,7 @@ def build_cli() -> click.Group:
     cli.add_command(bb_cmd)
     cli.add_command(tis_cmd)
     cli.add_command(ws_cmd)
+    cli.add_command(cle_cmd)
     cli.add_command(sso_cmd)
     cli.add_command(cache_cmd)
     cli.add_command(transit_cmd)

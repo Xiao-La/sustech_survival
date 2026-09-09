@@ -45,11 +45,14 @@ def _ws_print_detail(d: dict) -> None:
     for sec, pairs in d.get("sections", {}).items():
         click.secho(f"\n  [{sec}]", fg="cyan", bold=True)
         for k, v in pairs.items():
-            click.echo(f"    {k}: {v}")
-    tables = d.get("tables", [])
-    for tbl in tables:
+            v = str(v).strip()
+            if v:
+                click.echo(f"    {k}: {v}")
+    for tbl in d.get("tables", []):
         for row in tbl:
             click.echo("    " + " | ".join(str(c) for c in row))
+    if not d.get("sections") and not d.get("tables"):
+        click.echo("  (no detail returned — program may be archived or outside the current list)")
 
 
 @click.group(name="ws")

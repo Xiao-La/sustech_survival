@@ -12,16 +12,16 @@ Canonical tree (every leaf optional; missing leaves fall back):
     {
       "timeouts": {
         "http": {
-          "default": 30,     # seconds per request (fallback for all services)
+          "default": 60,     # seconds per request (fallback for all services)
           "attempts": 2      # retries for idempotent (GET) requests
         },
         "login": {
-          "default": 30,     # seconds per login step (CAS ticket dance)
+          "default": 60,     # seconds per login step (CAS ticket dance)
           "attempts": 3      # full login attempts before giving up
         },
         "services": {
-          "tis": { "http": 45, "login": 45 },   # per-service overrides
-          "bb":  { "http": 30 }
+          "tis": { "http": 60, "login": 60 },   # per-service overrides
+          "bb":  { "http": 60 }
         }
       }
     }
@@ -48,9 +48,9 @@ from . import _cache
 # Defaults (when config.json has no "timeouts" section or misses a leaf)
 # ---------------------------------------------------------------------------
 
-HTTP_DEFAULT: float = 30.0
+HTTP_DEFAULT: float = 60.0
 HTTP_ATTEMPTS: int = 2
-LOGIN_DEFAULT: float = 30.0
+LOGIN_DEFAULT: float = 60.0
 LOGIN_ATTEMPTS: int = 2
 
 # Legacy flat keys → tree path (kept so earlier configs keep working).
