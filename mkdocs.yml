@@ -65,6 +65,7 @@ plugins:
             NCES: 课程评价
             WS: 外事
             "E-Hall Booking": 场地预约
+            "Language Tutoring (CLE)": 语言指导
             Library Booking: 图书馆预约
             "Library (Primo)": 图书馆（Primo）
             Calendar: 校历
@@ -111,6 +112,7 @@ nav:
       - NCES: nces.md
       - WS: ws.md
       - E-Hall Booking: booking.md
+      - Language Tutoring (CLE): cle.md
       - Library Booking: lib-booking.md
       - Library (Primo): lib.md
       - Calendar: calendar.md
@@ -137,6 +139,7 @@ nav:
           - Faculty: modules/faculty.md
           - PMS: modules/pms.md
           - Booking: modules/booking.md
+          - CLE: modules/cle.md
           - Library: modules/lib.md
           - Calendar: modules/calendar.md
           - Resources: modules/resources.md

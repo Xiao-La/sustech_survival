@@ -234,3 +234,23 @@ class EhallSession:
         datas = payload.get("datas") or {}
         block = datas.get(model) or datas.get("pageAction") or {}
         return list(block.get("rows") or [])
+
+    def identity(self) -> Dict[str, str]:
+        """The signed-in portal identity, as the app's own JS reads it.
+
+        eHall sets ``window.userId`` / ``window.userName`` on the app page
+        (verified 2026-09-10: ``window.userId`` → SID, ``window.userName`` →
+        name). The EMAP save payload needs both, so this is the same source
+        the app itself uses — no separate user-info endpoint involved.
+        """
+        state = self.ensure()
+        try:
+            values = state.page.evaluate(
+                "(() => ({ id: window.userId || '', name: window.userName || '' }))()"
+            )
+        except Exception as exc:  # pragma: no cover - page teardown races
+            raise EhallError(f"cannot read the eHall portal identity: {exc}") from exc
+        return {
+            "student_id": str((values or {}).get("id") or ""),
+            "name": str((values or {}).get("name") or ""),
+        }
