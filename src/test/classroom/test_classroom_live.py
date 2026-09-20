@@ -38,6 +38,7 @@ from sustech_survival.tis.classroom.classroom import (
     ClassroomOccupancy,
     normalize_room_name,
 )
+from sustech_survival.semester import Semester
 
 
 # -- Parser tests (pure offline) ---------------------------------------------
@@ -505,10 +506,12 @@ class TestLiveOccupancyClientLive:
         client = LiveOccupancyClient()
         sess = client._ensure_session()
         sem = current_semester(sess)
-        # Current semester should be 2025-2026 xq=2 (Spring 2026) since
-        # today is 2026-06-28
-        assert sem.xn == "2025-2026"
-        assert sem.xq == "2"
+        # Compare against the package's own clock-derived term: a hardcoded
+        # year here rots the moment the semester rolls over (it asserted
+        # 2025-2026 Spring until the 2026 fall term went live).
+        live = Semester.current()
+        assert sem.xn == live.xn
+        assert sem.xq == live.xq
 
 
 if __name__ == "__main__":

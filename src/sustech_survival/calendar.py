@@ -20,6 +20,7 @@ The legacy TIS-code ``Semester`` class in ``sustech_survival.semester`` is
 imported privately for the TIS-code translation API ("2025-20262" etc).
 """
 from __future__ import annotations
+from . import _net
 
 import json
 import os
@@ -570,12 +571,21 @@ class Semester:
     # -- Construction ---------------------------------------------
 
     @classmethod
-    def from_payload(cls, payload: dict, level: str) -> "Semester":
+    def from_payload(cls, payload: dict, level: str,
+                     season: "Season | None" = None) -> "Semester":
         if "teaching_start" not in payload:
             raise CalendarError(f"payload missing 'teaching_start': {payload}")
         ts = date.fromisoformat(payload["teaching_start"])
-        season = Season.SPRING if ts.month <= 7 else Season.FALL
-        tis = _TisSemester(ts.year, season)
+        season = season if season is not None else Season.from_months(ts.month)
+        # TIS code convention (see sustech_survival.semester): end_year is the
+        # year the academic year STARTED, cohort_year the label year +1.
+        # Fall of Y → "Y-(Y+1)1"; spring/summer belong to the academic year
+        # that began the previous autumn → "(Y-1)-Y2" / "(Y-1)-Y3".
+        if season is Season.FALL:
+            end, cohort = ts.year, ts.year + 1
+        else:
+            end, cohort = ts.year - 1, ts.year
+        tis = _TisSemester(_TisSemester._code(end, cohort, season))
         sign_in = date.fromisoformat(payload["sign_in"])
         final_end = date.fromisoformat(payload["final"]["end"])
         teaching_end = _last_teaching_day(payload, ts, final_end)
@@ -837,11 +847,14 @@ class AcademicCalendar:
                     f"expected {year}"
                 )
         sem_payload = undergraduate if level == "undergraduate" else graduate
-        spring = Semester.from_payload(sem_payload["spring_semester"], level)
-        fall = Semester.from_payload(sem_payload["fall_semester"], level)
+        spring = Semester.from_payload(sem_payload["spring_semester"], level,
+                                       season=Season.SPRING)
+        fall = Semester.from_payload(sem_payload["fall_semester"], level,
+                                     season=Season.FALL)
         summer_payload = sem_payload.get("summer_semester")
         if summer_payload and "teaching_start" in summer_payload:
-            summer = Semester.from_payload(summer_payload, level)
+            summer = Semester.from_payload(summer_payload, level,
+                                           season=Season.SUMMER)
         else:
             summer = None
         return cls(
@@ -988,7 +1001,7 @@ def _decode_and_cache(
 
 def _fetch_json(url: str) -> dict:
     try:
-        with urllib.request.urlopen(url, timeout=15) as resp:
+        with urllib.request.urlopen(url, timeout=_net.service_timeout("http")) as resp:
             data = resp.read()
     except urllib.error.HTTPError as e:
         if e.code == 404:

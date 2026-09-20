@@ -113,7 +113,12 @@ def client(**kwargs) -> CleClient:
         "T_NKD_YYZX_SKSJB_QUERY": payload("T_NKD_YYZX_SKSJB_QUERY", BUCKETS),
     }
     models.update(kwargs.pop("models", {}))
-    return CleClient(session=FakeSession(models=models, **kwargs))  # type: ignore[arg-type]
+    # Pin the clock to week 1 (QSRQ 2026-09-07): every fixture row in this file
+    # is week 1, and the client's scan starts at its current week.
+    today = kwargs.pop("today", date(2026, 9, 8))
+    return CleClient(
+        session=FakeSession(models=models, **kwargs),  # type: ignore[arg-type]
+        today=today)
 
 
 def calls(c: CleClient) -> list[tuple[str, dict]]:

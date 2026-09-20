@@ -42,7 +42,7 @@ def _solve(client, body):
 
 @pytest.fixture()
 def app():
-    return create_app()
+    return create_app(skin="default")
 
 
 def _patch_client(monkeypatch, courses):

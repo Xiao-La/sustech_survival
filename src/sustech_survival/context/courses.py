@@ -39,12 +39,21 @@ def _now() -> datetime:
 
 
 def _anchor_monday(zc_now: int, today: date) -> date:
-    """Monday of academic week 1, derived from TIS's current week + today.
+    """Monday of academic week 1.
 
-    TIS is authoritative for the week number; the calendar alignment follows
-    from today's weekday. (Monday of week zc_now = today minus its weekday
-    offset; week 1 = 7*(zc_now-1) days earlier.)
+    Prefers the academic calendar — authoritative, and week 1 always starts on
+    a Monday even when teaching begins mid-week. Falls back to deriving it from
+    TIS's current week + today, which only holds while ``today`` really is
+    inside week ``zc_now`` (a stale week number or an injected clock date
+    shifts every session date otherwise).
     """
+    try:
+        from sustech_survival.context import calendar_term
+        sem = calendar_term(today)
+        if sem is not None:
+            return sem.date_of(1, 0)
+    except Exception:
+        pass
     monday_now = today - timedelta(days=today.weekday())
     return monday_now - timedelta(weeks=zc_now - 1)
 
@@ -101,8 +110,12 @@ def match_courses(sessions: list, query: str) -> list:
     return [n for n in names if q in n.lower() or n.lower() in q]
 
 
-def _load(course_query: str) -> dict:
+def _load(course_query: str, now: Optional[datetime] = None) -> dict:
     """Fetch the semester timetable and resolve the course.
+
+    ``now`` is the injectable clock (defaults to the real one) — it must reach
+    the week anchor too, or an injected date filters session dates built from a
+    different week's grid.
 
     Returns {"course": <matched full name>, "sessions": [...], "zc_now": n}.
     Raises ValueError with the available course list when nothing matches, or
@@ -111,7 +124,7 @@ def _load(course_query: str) -> dict:
     from sustech_survival.tis.schedule import current_week, semester_schedule
 
     zc_now = int(current_week())
-    today = _now().date()
+    today = (now or _now()).date()
     anchor = _anchor_monday(zc_now, today)
     sessions = session_rows(semester_schedule(), anchor)
     hits = match_courses(sessions, course_query)
@@ -138,7 +151,7 @@ def course_when(course_query: str, when: str,
         {"course", "when", "session": {...}|None, "zc_now",
          "reason": "...", "edge": first-or-last session for context}
     """
-    data = _load(course_query)
+    data = _load(course_query, now)
     sessions = [s for s in data["sessions"] if s["course"] == data["course"]]
     today = (now or _now()).date()
     if when == "next":

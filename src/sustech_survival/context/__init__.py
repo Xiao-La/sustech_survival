@@ -24,11 +24,12 @@ For testing:
     # OR set module-level OVERRIDE_TIME = <unix_ts>
 """
 from __future__ import annotations
+from .. import _net
 
 import json
 import re
 import time as _time_module
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 from enum import Enum
 from typing import Optional, Union
 
@@ -187,7 +188,7 @@ def fetch_weather() -> Optional[dict]:
 
         url = "https://api.sustech.online/weather"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=_net.service_timeout("http")) as resp:
             data = json.load(resp)
 
         raw = data.get("msg", "")
@@ -231,7 +232,7 @@ def fetch_library_status() -> str:
             "https://lib.sustech.edu.cn/",
             headers={"User-Agent": "Mozilla/5.0"},
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=_net.service_timeout("http")) as resp:
             html = resp.read().decode("utf-8")
 
         rooms = re.findall(
@@ -246,6 +247,116 @@ def fetch_library_status() -> str:
 
 
 # -- Schedule helpers (used by class_now) ---------------------------------
+
+# Calendar/term/slot caches — one TIS fetch + one calendar load per process.
+_CALENDAR_CACHE: dict = {}
+_TERM_CACHE: dict = {}
+_SLOT_CACHE: dict = {}
+
+
+def _calendar_for(d: date):
+    """The ``AcademicCalendar`` covering ``d``, or None when it can't be loaded.
+
+    Tries the date's own year, then the academic-year start — a fall term that
+    runs into January is filed under the previous calendar year.
+    """
+    from sustech_survival.calendar import AcademicCalendar
+    for year in (d.year, d.year - 1):
+        if year not in _CALENDAR_CACHE:
+            try:
+                _CALENDAR_CACHE[year] = AcademicCalendar.load(year)
+            except Exception:
+                continue          # not cached — a transient failure may retry
+        return _CALENDAR_CACHE[year]
+    return None
+
+
+def calendar_term(d: date):
+    """The academic-calendar Semester covering ``d``, with TIS classes filled in.
+
+    The calendar owns date intelligence (holidays, 补课 transfer, week parity,
+    final weeks). This is the single entry point the reminder uses, so class
+    reporting can't drift from 校历. None when the calendar can't be loaded.
+    """
+    cal = _calendar_for(d)
+    if cal is None:
+        return None
+    sem = cal.day(d).semester
+    if sem is None:
+        return None
+    key = (getattr(sem, "xn", ""), getattr(sem, "xq", ""))
+    if key not in _TERM_CACHE:
+        _TERM_CACHE[key] = sem
+        try:
+            from sustech_survival.tis.schedule import class_times
+            for ct in class_times(sem.xn, sem.xq):
+                sem.fill(ct)
+        except Exception:
+            pass      # feed down: dates still work, classes come up empty
+    return _TERM_CACHE[key]
+
+
+def _period_minutes(ks: int, js: int, st: dict):
+    """(start, end) minutes-of-day for periods ks..js, from the slot grid."""
+    if ks not in st or js not in st:
+        return None
+    start, end = st[ks][0], st[js][1]
+    try:
+        return (int(start[:2]) * 60 + int(start[3:]),
+                int(end[:2]) * 60 + int(end[3:]))
+    except (ValueError, IndexError):
+        return None
+
+
+def _hhmm(minutes: int) -> str:
+    return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+
+def _detail(span: tuple, room: str = "", when: str = "") -> str:
+    """'10:20-12:10 · 一教526' — date-prefixed when the class isn't today."""
+    text = f"{_hhmm(span[0])}-{_hhmm(span[1])}"
+    return " · ".join(bit for bit in (when, text, room) if bit)
+
+
+def _slot_grid(d: date) -> dict:
+    """50-minute slot grid (cached per ISO week)."""
+    key = d.isocalendar()[:2]
+    if key not in _SLOT_CACHE:
+        try:
+            from sustech_survival.tis.schedule import current_week
+            week = current_week()
+        except Exception:
+            week = 1
+        try:
+            _SLOT_CACHE[key] = slot_times(week)
+        except Exception:
+            _SLOT_CACHE[key] = {}
+    return _SLOT_CACHE[key]
+
+
+def _next_class(now: datetime, sem, st: dict, horizon_days: int = 21) -> dict:
+    """First class at or after ``now``, scanning the calendar day by day.
+
+    Because it asks the calendar per day, holidays, extra breaks, final weeks
+    and empty weekends are skipped and 补课 days are honoured.
+    """
+    today = now.date()
+    total_min = now.hour * 60 + now.minute
+    for offset in range(horizon_days + 1):
+        d = today + timedelta(days=offset)
+        day = sem.day(d)
+        if not day.has_class():
+            continue
+        for ct in sorted(day.schedule, key=lambda c: min(c.periods or (99,))):
+            if not ct.periods:
+                continue
+            span = _period_minutes(min(ct.periods), max(ct.periods), st)
+            if span is None or (offset == 0 and total_min > span[1]):
+                continue          # no grid for it, or already over today
+            when = "" if offset == 0 else d.strftime("%a %Y-%m-%d")
+            return {"next": ct.title, "next_detail": _detail(span, ct.room, when)}
+    return {}
+
 
 def slot_times(zc: int) -> dict:
     """Fetch actual 50-min slot start/end times from queryKbjg.
@@ -268,7 +379,7 @@ def slot_times(zc: int) -> dict:
         resp = session.post(
             'https://tis.sustech.edu.cn/component/queryKbjg',
             data={'xn': sem.xn, 'xq': sem.xq, 'zc': str(zc)},
-            timeout=10,
+            timeout=_net.service_timeout("http"),
         )
         content = resp.json().get('content', [])
         return {int(e['xj']): (e['kssj'], e['jssj']) for e in content}
@@ -301,14 +412,51 @@ def entry_name(entry: dict) -> str:
 
 
 def get_schedule_reminder(ts: float) -> dict:
-    """Compute today's schedule reminder for Unix timestamp ``ts``.
+    """Compute the class reminder for Unix timestamp ``ts``.
+
+    Calendar-aware: holiday / 补课 / break / final-week status comes from the
+    academic calendar, so a Sunday running Friday's makeup schedule reports
+    Friday's classes and a weekday holiday reports none. Falls back to the
+    weekday-grid heuristic only when the calendar can't be loaded.
 
     Returns dict:
       {'now': str}                            — class happening right now
-      {'next': str, 'next_detail': str}      — next class today + detail
-      {'tomorrow_morning': str}              — tomorrow morning courses
-      {}                                      — no classes today/tomorrow
+      {'next': str, 'next_detail': str}       — next class (today or later)
+      {}                                      — no class within 3 weeks
     """
+    try:
+        now = datetime.fromtimestamp(ts, tz=CHINA_TZ)
+        sem = calendar_term(now.date())
+        if sem is None or not getattr(sem, "classes", None):
+            # No calendar / no class feed — the old weekday-grid heuristic.
+            return _legacy_reminder(ts)
+
+        st = _slot_grid(now.date())
+        total_min = now.hour * 60 + now.minute
+        today = sem.day(now.date())
+
+        if today.has_class() and today.schedule:
+            meetings = sorted(today.schedule,
+                              key=lambda c: min(c.periods or (99,)))
+            for ct in meetings:
+                span = _period_minutes(min(ct.periods), max(ct.periods), st)
+                if span and span[0] <= total_min <= span[1]:
+                    return {"now": ct.title}
+            for ct in meetings:
+                span = _period_minutes(min(ct.periods), max(ct.periods), st)
+                if span and total_min < span[0]:
+                    return {"next": ct.title,
+                            "next_detail": _detail(span, ct.room)}
+        return _next_class(now, sem, st)
+    except Exception:
+        try:
+            return _legacy_reminder(ts)
+        except Exception:
+            return {}
+
+
+def _legacy_reminder(ts: float) -> dict:
+    """Weekday-grid fallback: today's rows by weekday number, no calendar."""
     try:
         from sustech_survival.tis.schedule import week_schedule, current_week
 
@@ -515,12 +663,11 @@ def get_academic_info(dt: datetime) -> tuple:
     (e.g. fully offline).
     """
     today = dt.date()
-    try:
-        from sustech_survival.calendar import AcademicCalendar
-        cal = AcademicCalendar.load(today.year)
+    cal = _calendar_for(today)
+    if cal is not None:
         day = cal.day(today)
         sem = day.semester
-    except Exception:
+    else:
         day = None
         sem = None
 
@@ -586,7 +733,20 @@ def get_academic_info(dt: datetime) -> tuple:
 
 
 def is_holiday(dt: datetime) -> str:
-    """Check against known holiday data. Returns holiday name or ''."""
+    """Holiday name for ``dt``, or '' — calendar-backed.
+
+    Reads the academic calendar (the same source ``get_academic_info`` uses), so
+    names match 校历. A 补课 (makeup-class) day is NOT a holiday. The bundled
+    ``HOLIDAY_DATA`` snapshot is a last-resort fallback for when the calendar
+    can't be loaded — it is stale (it marks 2026-09-26/27 and 2026-10-08 as
+    holidays, none of which are).
+    """
+    cal = _calendar_for(dt.date())
+    if cal is not None:
+        day = cal.day(dt.date())
+        if day.is_holiday():
+            return day.holiday.name if day.holiday else "Holiday"
+        return ""
     year = dt.year
     holidays = HOLIDAY_DATA.get(year, {})
     holidays.update(HOLIDAY_DATA.get(year - 1, {}))
@@ -680,6 +840,20 @@ class Context:
     def holiday(self) -> str:
         """Holiday name or ''"""
         return is_holiday(self.dt)
+
+    @property
+    def makeup(self) -> str:
+        """Makeup-class day descriptor — 'Friday schedule' — or ''.
+
+        Empty on every ordinary day, including holidays.
+        """
+        sem = calendar_term(self.dt.date())
+        if sem is None:
+            return ""
+        day = sem.day(self.dt.date())
+        if not day.is_compensatory() or day.comp is None:
+            return ""
+        return f"{day.comp.workday} schedule"
 
     @property
     def time(self) -> float:
@@ -850,6 +1024,8 @@ class Context:
 
         if self.holiday:
             parts.append(f"Today is 🎉 [{self.holiday}]")
+        if self.makeup:
+            parts.append(f"Today is a 🔁 makeup-class day — [{self.makeup}]")
 
         try:
             cache_key = f"sr_{self.dt.strftime('%Y%m%d%H%M')}"
@@ -865,8 +1041,6 @@ class Context:
                 parts.append(f"📍 Now: [{reminder}]")
             elif now_val.get("next"):
                 parts.append(f"📅 Next: [{now_val['next']}] — {now_val['next_detail']}")
-            elif now_val.get("tomorrow_morning"):
-                parts.append(f"🌅 Tomorrow morning: [{now_val['tomorrow_morning']}]")
         except Exception:
             pass  # schedule unavailable — no CAS/网络, skip reminder block silently
 

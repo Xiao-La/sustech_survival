@@ -82,7 +82,8 @@ def test_sync_fields_with_unix_time():
 def test_holiday_field_returns_known_holiday():
     fixed = datetime(2026, 5, 1, 12, 0, tzinfo=CHINA_TZ)
     ctx = Context(level="terse", dt=fixed)
-    assert "Labor Day" in ctx.holiday
+    # Name comes from the academic calendar (校历), not an English snapshot.
+    assert ctx.holiday == "劳动节"
 
 
 def test_holiday_field_returns_empty_for_normal_day():
@@ -304,7 +305,7 @@ def test_get_academic_info_outside_semester():
 
 def test_is_holiday_known_date():
     fixed = datetime(2026, 5, 1, 12, 0, tzinfo=CHINA_TZ)
-    assert "Labor Day" in is_holiday(fixed)
+    assert is_holiday(fixed) == "劳动节"   # name from the academic calendar
 
 
 def test_is_holiday_normal_weekday():
