@@ -136,9 +136,12 @@ def test_unknown_query_lists_available():
 
 
 def test_render_ok_and_error_shapes():
-    ok = render("材料学综合实验I", "next", now=NOW)
-    assert ok["ok"] is True
-    assert "2026-09-09" in ok["text"]
-    bad = render("量子力学", "next", now=NOW)
-    assert bad["ok"] is False
-    assert "❌" in bad["text"]
+    with patch("sustech_survival.tis.schedule.semester_schedule",
+               return_value=ROWS), \
+         patch("sustech_survival.tis.schedule.current_week", return_value=1):
+        ok = render("材料学综合实验I", "next", now=NOW)
+        assert ok["ok"] is True
+        assert "2026-09-09" in ok["text"]
+        bad = render("量子力学", "next", now=NOW)
+        assert bad["ok"] is False
+        assert "❌" in bad["text"]
