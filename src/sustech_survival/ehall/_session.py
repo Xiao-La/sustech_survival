@@ -13,9 +13,8 @@ Wire facts verified 2026-09-09 (see sustech-dev records):
   …&ticket=ST-…`` → redirect to ``<service>?ticket=<uuid>``.
 - Cookies afterwards: ``route``, ``CASTGC`` (ehall host), ``TGC``
   (cas host); the amp session cookie is set by portal JS on page load.
-- This module never holds credentials: sid/password come from the
-  shared credentials file (``$SUSTECH_CREDENTIALS_FILE`` or
-  ``~/.sustech_survival/credentials.txt``, first ``sid:password`` line).
+- Credentials come from the shared SSO authorizer, including its in-memory
+  override, ``SUSTECH_CREDENTIALS`` path, and default home file.
 """
 from __future__ import annotations
 
@@ -32,9 +31,9 @@ except ImportError:  # pragma: no cover
     sync_playwright = None  # type: ignore[assignment]
 
 from ..exceptions import APIError as SUSTechError
+from ..sso.authorizer import AuthorizerError, read_credentials
 
 EHALL_BASE = "https://ehall.sustech.edu.cn"
-CREDENTIALS_ENV = "SUSTECH_CREDENTIALS_FILE"
 
 
 class EhallError(SUSTechError):
@@ -46,21 +45,10 @@ class EhallAuthError(EhallError):
 
 
 def _load_credentials() -> "tuple[str, str]":
-    path = os.environ.get(CREDENTIALS_ENV) or os.path.expanduser(
-        "~/.sustech_survival/credentials.txt"
-    )
     try:
-        with open(path, encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line or line.startswith("#") or ":" not in line:
-                    continue
-                sid, _, pwd = line.partition(":")
-                if sid and pwd:
-                    return sid, pwd
-    except OSError as exc:  # pragma: no cover
-        raise EhallAuthError(f"cannot read credentials file {path}: {exc}") from exc
-    raise EhallAuthError(f"no sid:password line found in {path}")
+        return tuple(read_credentials())
+    except AuthorizerError as exc:
+        raise EhallAuthError(str(exc)) from exc
 
 
 def _find_chromium() -> Optional[str]:
