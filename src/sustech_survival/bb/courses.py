@@ -15,6 +15,8 @@ import time
 from pathlib import Path
 from typing import List, Dict
 
+from .ids import numeric_id
+
 BB_BASE = "https://bb.sustech.edu.cn"
 
 
@@ -136,8 +138,7 @@ def load_courses():
 
 def get_course_numeric_id(course_id_str):
     """Extract numeric part from '_8343_1' → '8343'."""
-    m = re.search(r"_(\d+)_", course_id_str)
-    return m.group(1) if m else course_id_str
+    return numeric_id(course_id_str)
 
 
 def extract_code(name: str) -> list:
@@ -172,6 +173,7 @@ def find_course(query):
         name = c.get("name", "")
 
         if (q == cid.lower()
+                or q == get_course_numeric_id(cid)
                 or q in name.lower()):
             results.append((cid, name))
 
@@ -192,7 +194,8 @@ def find_course(query):
                 name = cd.get("name", "")
             except Exception:
                 name = ""
-            if q in name.lower() or q == cid.lower():
+            if (q in name.lower() or q == cid.lower()
+                    or q == get_course_numeric_id(cid)):
                 results.append((cid, name))
     except Exception:
         pass
@@ -215,26 +218,20 @@ def discover_assignments_for_course(course_id_str):
     No Playwright needed -- contentId from gradebook columns is the content ID
     used in uploadAssignment URLs.
     """
-    numeric_match = re.search(r"_(\d+)_1", course_id_str)
-    if not numeric_match:
-        numeric_match = re.search(r"^_?(\d+)_?1?$", course_id_str)
-    numeric_cid = numeric_match.group(1) if numeric_match else course_id_str
+    numeric_cid = numeric_id(course_id_str)
 
     bid = f"_{numeric_cid}_1"
-    try:
-        cols = api(
-            f"/learn/api/public/v1/courses/{bid}/gradebook/columns"
-            f"?_fields=id,name,contentId,grading",
-        )
-    except Exception:
-        return []
+    cols = api(
+        f"/learn/api/public/v1/courses/{bid}/gradebook/columns"
+        f"?_fields=id,name,contentId,grading",
+    )
 
     results = []
     for col in cols.get("results", []):
         content_id = col.get("contentId", "")
         if not content_id:
             continue
-        cid_numeric = content_id.lstrip("_").rstrip("_1")
+        cid_numeric = numeric_id(content_id)
         name = col.get("name", "") or f"Assignment {cid_numeric}"
         results.append((cid_numeric, name))
 

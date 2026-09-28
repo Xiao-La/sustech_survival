@@ -25,6 +25,8 @@ import requests
 
 from sustech_survival import _cache
 
+from .ids import numeric_id
+
 # -- Session ------------------------------------------------------------------
 
 BB_BASE = "https://bb.sustech.edu.cn"
@@ -99,7 +101,7 @@ def resolve_course(content_id):
                         timeout=5,
                     )
                     if r.status_code == 200:
-                        return bid.lstrip("_").rstrip("_1")
+                        return numeric_id(bid)
                 except Exception:
                     pass
     except Exception:
@@ -124,7 +126,7 @@ def resolve_course(content_id):
                         timeout=5
                     )
                     if r.status_code == 200:
-                        return bid.lstrip("_").rstrip("_1")
+                        return numeric_id(bid)
                 except Exception:
                     pass
         paging = data.get("paging", {})
@@ -278,10 +280,11 @@ def download_content(content_id, out_dir=None):
 
 # -- Gradebook Attempt Discovery (REST) ---------------------------------------
 
-def get_assignment_attempts(course_id, column_id):
+def get_assignment_attempts(course_id, column_id, *, strict=False):
     """
     Return list of (attempt_id, attempt_num, created_timestamp) for a grade column.
-    Uses gradebook REST API — no Playwright.
+    Uses gradebook REST API — no Playwright. With strict=True, propagate
+    lookup errors instead of reporting a failed read as zero attempts.
     """
     sess = session()
     bid = course_id if course_id.startswith("_") else f"_{course_id}_1"
@@ -291,25 +294,27 @@ def get_assignment_attempts(course_id, column_id):
         results = []
         for i, att in enumerate(data.get("results", [])):
             results.append((
-                att["id"].lstrip("_").rstrip("_1"),
+                numeric_id(att["id"]),
                 i + 1,
                 att.get("created", "")[:19].replace("T", " "),
             ))
         return results
     except Exception:
+        if strict:
+            raise
         return []
 
 
 def discover_attempt_ids(ctx, numeric_cid, content_id):
     """
-    Return list of (attempt_id, (attempt_num, created_timestamp)) for a content item.
+    Return list of (attempt_id, attempt_num, created_timestamp) for a content item.
     Uses gradebook REST API — no Playwright needed for discovery.
     ctx is accepted for API compatibility but not used (REST handles it).
     """
     column_id = get_column_id_for_content(numeric_cid, content_id)
     if not column_id:
-        return []
-    return get_assignment_attempts(numeric_cid, column_id)
+        raise LookupError(f"No gradebook column found for content {content_id}")
+    return get_assignment_attempts(numeric_cid, column_id, strict=True)
 
 
 def scrape_attempt_details(ctx, numeric_cid, content_id, attempt_id):
@@ -337,9 +342,9 @@ def scrape_attempt_details(ctx, numeric_cid, content_id, attempt_id):
         return {}
 
     att_data = None
-    att_id_stripped = attempt_id.lstrip("_")
+    att_id_stripped = numeric_id(attempt_id)
     for att in data.get("results", []):
-        if att["id"].lstrip("_").rstrip("_1") == att_id_stripped:
+        if numeric_id(att["id"]) == att_id_stripped:
             att_data = att
             break
 
@@ -381,7 +386,7 @@ def get_column_id_for_content(course_id, content_id, sess=None):
     item = get_content_item(course_id, content_id, sess)
     if not item:
         return None
-    return item.get("contentHandler", {}).get("gradeColumnId", "").lstrip("_").rstrip("_1")
+    return numeric_id(item.get("contentHandler", {}).get("gradeColumnId", ""))
 
 
 # -- Submission Download (gradebook REST metadata only) ----------------------

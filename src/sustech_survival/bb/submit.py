@@ -203,6 +203,11 @@ def _get_upload_form(course_id: str, content_id: str) -> dict:
         )
     form_action = form_action_match.group(1) if form_action_match else \
         f"/webapps/assignment/uploadAssignment?action=submit"
+    expected_course = f"_{course_id}_1"
+    expected_content = f"_{content_id}_1"
+    if (form_data.get("course_id") != expected_course or
+            form_data.get("content_id") != expected_content):
+        raise RuntimeError("BB upload form target does not match requested assignment")
 
     # File input id
     file_input_match = re.search(
@@ -349,13 +354,14 @@ def submit_assignment_rest(
         # so any session with valid BB auth will work.
         sess = _bb_session()
         submit_url = f"{BB_BASE}/webapps/assignment/uploadAssignment?action=submit"
-        files = {
-            "newFile_LocalFile0": (
-                target_name, open(staged_path, "rb"), "application/octet-stream",
-            ),
-        }
-        resp = sess.post(submit_url, data=form_data, files=files, timeout=60,
-                         allow_redirects=False)
+        with open(staged_path, "rb") as upload:
+            files = {
+                "newFile_LocalFile0": (
+                    target_name, upload, "application/octet-stream",
+                ),
+            }
+            resp = sess.post(submit_url, data=form_data, files=files, timeout=60,
+                             allow_redirects=False)
 
         # BB returns JSON {"destinationUrl": "..."} on success, or HTML on error
         try:
@@ -397,7 +403,8 @@ def submit_assignment_rest(
 # submit_file — convenience wrapper (legacy `bb.submit_file` API)
 # -------------------------------------------------------------------------
 
-def submit_file(content_id, file_path, course_id=None, submitted_name=None):
+def submit_file(content_id, file_path, course_id=None, submitted_name=None,
+                dry_run=False):
     """Submit a file to a BB assignment via REST (no browser).
 
     Renamed from `submit()` on 2026-06-08 to fix the module-shadowing bug:
@@ -408,6 +415,8 @@ def submit_file(content_id, file_path, course_id=None, submitted_name=None):
     `submit_assignment_rest()` for the lower-level primitive.
 
     Resolves the owning course automatically when `course_id` is omitted.
+
+    Set dry_run=True to GET and validate the form without submitting a file.
 
     Returns (success: bool, message: str) — the legacy tuple shape
     (via SubmitResult.to_tuple()).
@@ -440,6 +449,7 @@ def submit_file(content_id, file_path, course_id=None, submitted_name=None):
         _num_id(content_id),
         str(fp),
         name_override=target_name,
+        dry_run=dry_run,
         skip_dedup=True,
     )
     # Backwards compat: keep the legacy (ok, msg) tuple for the CLI.
@@ -513,7 +523,9 @@ def check_attempts(content_id, course_id=None):
         pass
 
     column_id = get_column_id_for_content(cid, content)
-    attempts = get_assignment_attempts(cid, column_id) if column_id else []
+    if not column_id:
+        raise LookupError(f"No gradebook column found for content {content}")
+    attempts = get_assignment_attempts(cid, column_id, strict=True)
     return len(attempts), assignment_name
 
 

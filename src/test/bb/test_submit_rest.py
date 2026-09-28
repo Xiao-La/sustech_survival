@@ -114,6 +114,22 @@ def test_get_upload_form_uses_correct_url():
     assert "action=newAttempt" in called_url
 
 
+@pytest.mark.parametrize(
+    "page",
+    ["<html><title>Login</title></html>",
+     MOCK_UPLOAD_PAGE_HTML.replace('value="_610821_1"', 'value="_610822_1"')],
+)
+def test_get_upload_form_rejects_non_assignment_or_wrong_target(page):
+    """A 200 login page or another assignment must never pass preview."""
+    from sustech_survival.bb.submit import _get_upload_form
+
+    with patch("sustech_survival.bb.submit._bb_session") as mock_sess:
+        response = MagicMock(status_code=200, text=page)
+        mock_sess.return_value.get.return_value = response
+        with pytest.raises(RuntimeError):
+            _get_upload_form("8328", "610821")
+
+
 # --- submit_assignment_rest end-to-end --------------------------------------
 
 def test_submit_assignment_rest_dry_run(tmp_path):

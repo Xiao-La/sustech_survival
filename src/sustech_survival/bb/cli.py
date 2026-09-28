@@ -89,7 +89,16 @@ def safe_attempts(ctx, numeric_cid, content_id):
     try:
         return discover_attempt_ids(ctx, numeric_cid, content_id)
     except Exception:
-        return []
+        return None
+
+
+def attempt_status(attempts):
+    """Do not report an unreadable attempt list as an empty one."""
+    if attempts is None:
+        return "status unavailable"
+    if attempts:
+        return ok_s(f"submitted ({len(attempts)} attempt(s))")
+    return err_s("not submitted")
 
 
 # -- Assignment list command --------------------------------------------
@@ -99,10 +108,12 @@ def list_assignments(ctx, numeric_cid, course_name, assignments):
     click.secho(f"\n📋  Assignments - {course_name}\n", fg="cyan", bold=True)
     for cid, title in assignments:
         atts = safe_attempts(ctx, numeric_cid, cid)
-        status = f"{len(atts)} attempt(s)" if atts else err_s("not submitted")
+        status = attempt_status(atts)
         click.secho(f"  [{cid}] {title[:44]}", fg="white")
         click.echo(f"       {status}")
-        for aid, (anum, ts) in atts:
+        if atts is None:
+            continue
+        for aid, anum, ts in atts:
             click.echo(f"         {em(f'Attempt {anum}')}  {ts[:25]}")
         print()
 
@@ -114,7 +125,7 @@ def all_status(ctx, numeric_cid, course_name, assignments):
     click.secho(f"\n📋  Submission Status - {course_name}\n", fg="cyan", bold=True)
     for cid, title in assignments:
         atts = safe_attempts(ctx, numeric_cid, cid)
-        status = ok_s(f"submitted ({len(atts)} attempt(s))") if atts else err_s("not submitted")
+        status = attempt_status(atts)
         click.secho(f"  [{cid}] {title[:44]}", fg="white")
         click.echo(f"       {status}")
     print()
@@ -130,11 +141,11 @@ def single_assignment(ctx, session_cookies, numeric_cid,
     if att_keyword == "status":
         # Status of one specific assignment
         atts = safe_attempts(ctx, numeric_cid, content_id)
-        status = ok_s(f"submitted ({len(atts)} attempt(s))") if atts else err_s("not submitted")
+        status = attempt_status(atts)
         click.secho(f"\n📋  Assignment {content_id}\n", fg="cyan", bold=True)
         click.echo(f"  Status: {status}")
         if atts:
-            for aid, (anum, ts) in atts:
+            for aid, anum, ts in atts:
                 click.echo(f"  {em(f'Attempt {anum}')}  {ts[:25]}")
         print()
         return
@@ -143,10 +154,12 @@ def single_assignment(ctx, session_cookies, numeric_cid,
         # All attempts for this assignment
         atts = safe_attempts(ctx, numeric_cid, content_id)
         click.secho(f"\n🔍  Attempts - {content_id}\n", fg="cyan", bold=True)
-        if not atts:
+        if atts is None:
+            click.secho("  Attempt status unavailable.", fg="yellow")
+        elif not atts:
             click.secho("  No attempts found.", fg="yellow")
         else:
-            for aid, (anum, ts) in atts:
+            for aid, anum, ts in atts:
                 try:
                     det = scrape_attempt_details(ctx, numeric_cid, content_id, aid)
                 except Exception:
@@ -167,7 +180,10 @@ def single_assignment(ctx, session_cookies, numeric_cid,
 
     # Details of specific attempt
     atts = safe_attempts(ctx, numeric_cid, content_id)
-    att_map = {a: aid for aid, (a, _) in atts}
+    if atts is None:
+        click.secho("  Attempt status unavailable.", fg="yellow")
+        return
+    att_map = {anum: aid for aid, anum, _ in atts}
     if anum not in att_map:
         click.secho(f"❌  Attempt {anum} not found. Available: {list(att_map.keys())}", fg="red")
         sys.exit(1)
@@ -434,9 +450,12 @@ def course_cmd(course_id, sub, content_id, attempt_arg, download_flag, output_di
         sub in ("assignments", None)
         or (sub == "assignment" and content_id == "status")
     )
-    all_assignments = (
-        discover_assignments_for_course(course_id_str) if needs_assignments else []
-    )
+    try:
+        all_assignments = (
+            discover_assignments_for_course(course_id_str) if needs_assignments else []
+        )
+    except Exception as exc:
+        raise click.ClickException(f"Could not load assignment list: {exc}") from exc
 
     # Pure REST: the discovery/attempt helpers accept ctx only for API
     # compatibility with the old Playwright-based callers — they ignore it.
@@ -462,7 +481,8 @@ def course_cmd(course_id, sub, content_id, attempt_arg, download_flag, output_di
 @click.argument("file_path", type=click.Path(exists=True))
 @click.option("-c", "--course", "course_id", help="Course ID (numeric). Auto-resolved if omitted.")
 @click.option("--comment", "comment", default=None, help="Optional comment text (ignored — the REST submit path has no comment support).")
-def submit_cmd(content_id, file_path, course_id, comment):
+@click.option("--dry-run", is_flag=True, help="Preview the upload form and file without submitting.")
+def submit_cmd(content_id, file_path, course_id, comment, dry_run):
     """
     Submit a file to a BB assignment (pure REST, no browser).
 
@@ -473,11 +493,14 @@ def submit_cmd(content_id, file_path, course_id, comment):
     from sustech_survival.bb.submit import submit_file
     load_session_or_exit()
     try:
-        ok, msg = submit_file(content_id, file_path, course_id=course_id)
+        ok, msg = submit_file(content_id, file_path, course_id=course_id,
+                              dry_run=dry_run)
         if ok:
-            click.secho(f"✓  Submission successful! {msg}", fg="green")
+            label = "Preview successful" if dry_run else "Submission successful"
+            click.secho(f"✓  {label}! {msg}", fg="green")
         else:
             click.secho(f"⚠  {msg}", fg="yellow")
+            raise SystemExit(1)
     except Exception as e:
         click.secho(f"❌  Submission failed: {e}", fg="red")
         sys.exit(1)

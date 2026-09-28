@@ -15,6 +15,8 @@ from urllib.parse import unquote, urlparse, urlunparse
 
 import requests
 
+from .ids import numeric_id
+
 BB_DIR = Path(__file__).parent
 BB_BASE = "https://bb.sustech.edu.cn"
 
@@ -81,7 +83,7 @@ def discover_courses(term_id=None):
         me = api("/learn/api/public/v1/users/me")
         uid = me["id"]
         data = api(f"/learn/api/public/v1/users/{uid}/courses")
-        return [(c["courseId"].lstrip("_").rstrip("_1"), c.get("name", ""))
+        return [(numeric_id(c["courseId"]), c.get("name", ""))
                  for c in data.get("results", []) if c.get("courseId")]
     except Exception:
         return []
@@ -106,7 +108,7 @@ def walk_contents(course_id, parent_id=None, session=None):
         return
 
     for item in data.get("results", []):
-        cid = item["id"].lstrip("_").rstrip("_1")
+        cid = numeric_id(item["id"])
         handler = item.get("contentHandler", {}).get("id", "")
         yield (
             cid,
@@ -147,7 +149,7 @@ def discover_pages(course_id, *, refresh=False):
         root = api(f"/learn/api/public/v1/courses/{bid}/contents", sess)
         for item in root.get("results", []):
             if item.get("contentHandler", {}).get("id") == "resource/x-bb-folder":
-                cid = item["id"].lstrip("_").rstrip("_1")
+                cid = numeric_id(item["id"])
                 section_map[cid] = item.get("title", "")
     except Exception:
         pass
@@ -283,7 +285,7 @@ def resolve_course(content_id):
                         timeout=5
                     )
                     if r.status_code == 200:
-                        return bid.lstrip("_").rstrip("_1")
+                        return numeric_id(bid)
                 except Exception:
                     pass
 
