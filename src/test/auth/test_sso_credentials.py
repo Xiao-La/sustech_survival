@@ -121,6 +121,29 @@ def test_resolve_creds_path_env_wins_over_home(monkeypatch, tmp_path):
     assert resolve_creds_path() == tmp_path / "env.txt"
 
 
+def test_authorizer_uses_shared_credentials_with_legacy_skill_dir(monkeypatch, tmp_path):
+    legacy_dir = tmp_path / "legacy"
+    legacy_dir.mkdir()
+    (legacy_dir / "credentials.txt").write_text("old:stale", encoding="utf-8")
+    current = tmp_path / "current.txt"
+    write_credentials("current", "correct", path=current)
+    monkeypatch.setenv("SUSTECH_CREDENTIALS", str(current))
+
+    class DummyAuth(authorizer.Authorizer):
+        BASE_URL = "https://example.invalid"
+        SERVICE_URL = "https://example.invalid/cas"
+
+    auth = DummyAuth(skill_dir=str(legacy_dir))
+    assert auth.read_creds() == ("current", "correct")
+    assert auth._creds_file == current
+
+    authorizer.cred_set("memory", "override")
+    try:
+        assert auth.read_creds() == ("memory", "override")
+    finally:
+        authorizer.cred_clear()
+
+
 # ── cred_set / cred_clear in-memory override ────────────────────────────────
 
 def test_cred_set_in_memory_override(monkeypatch, tmp_path):

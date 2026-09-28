@@ -4,6 +4,12 @@ import warnings
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def isolate_credentials(monkeypatch, tmp_path):
+    """Keep auth failure tests away from the user's real credential source."""
+    monkeypatch.setenv("SUSTECH_CREDENTIALS", str(tmp_path / "missing.txt"))
+
+
 class TestInMemorySession:
     """In-memory session cache — no disk writes."""
 
@@ -179,8 +185,7 @@ class TestCheck:
             SERVICE_URL = "https://dummy.example.com/cas"
 
         auth = DummyAuth()
-        # Force the no-credentials path so the failure mode is deterministic.
-        auth.skill_dir = "/nonexistent"
+        # The isolated credential source makes this failure deterministic.
 
         ok, reason = auth.check()
         assert ok is False
@@ -251,7 +256,6 @@ class TestEnsureAddsHint:
             SERVICE_URL = "https://dummy.example.com/cas"
 
         auth = DummyAuth()
-        auth.skill_dir = "/nonexistent"
 
         ok, reason = auth.ensure()
         assert ok is False
@@ -269,7 +273,6 @@ class TestEnsureAddsHint:
             SERVICE_URL = "https://dummy.example.com/cas"
 
         auth = DummyAuth()
-        auth.skill_dir = "/nonexistent"
 
         ok, reason = auth.ensure()
         assert ok is False
@@ -297,7 +300,6 @@ class TestAuthErrorFormat:
             SERVICE_URL = "https://dummy.example.com/cas"
 
         auth = DummyAuth()
-        auth.skill_dir = "/nonexistent"
 
         ok, reason = auth.check()
         assert ok is False
@@ -311,7 +313,6 @@ class TestAuthErrorFormat:
             SERVICE_URL = "https://dummy.example.com/cas"
 
         auth = DummyAuth()
-        auth.skill_dir = "/nonexistent"
 
         ok, reason = auth.check()
         # No session file path components should leak into user-facing reason
@@ -384,7 +385,6 @@ class TestTTLRefresh:
             _get_ticket_cookies = None  # not used
 
         auth = DummyAuth()
-        auth.skill_dir = "/nonexistent"
 
         ok, reason = auth.ensure()
         assert ok is False

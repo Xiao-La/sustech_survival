@@ -18,6 +18,7 @@
 # =============================================================================
 
 from pathlib import Path
+from ..authorizer import AuthorizerError
 from ..providers.shibboleth import ShibbolethAuthorizer
 WOS_BASE = "https://www.webofscience.com"
 WOS_INIT = "https://www.webofscience.com/wos/woscc/summary/basic"
@@ -93,13 +94,11 @@ class WoSAuth(ShibbolethAuthorizer):
 
         # Load credentials
         if not username or not password:
-            cf = Path(self._creds_file)
-            if cf.exists():
-                line = cf.read_text().strip()
-                if ':' in line:
-                    username, password = line.split(':', 1)
-                    username = username.strip()
-                    password = password.strip()
+            try:
+                username, password = self._read_creds()
+            except AuthorizerError:
+                print("⚠ WoS credentials not found in credentials.txt")
+                return False
 
         if not username or not password:
             print("⚠ WoS credentials not found in credentials.txt")

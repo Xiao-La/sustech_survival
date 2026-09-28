@@ -184,7 +184,8 @@ def read_credentials(path: Optional[Path] = None) -> tuple[str, str]:
         )
     if ":" not in line:
         raise AuthorizerError(f"Invalid format in {p} (need sid:password)")
-    return line.split(":", 1)
+    sid, password = line.split(":", 1)
+    return sid, password
 
 
 # ── Authorizer ───────────────────────────────────────────────────────────────
@@ -532,40 +533,20 @@ class Authorizer(ABC):
     # ── Credentials ─────────────────────────────────────────────────────────
 
     def _read_creds(self) -> tuple[str, str]:
-        """Credentials with the unified three-way precedence.
+        """Use the shared in-memory, environment, and home credential order.
 
-        1. :func:`cred_set` — in-memory override (highest)
-        2. ``./credentials.txt`` — current working directory
-        3. ``SUSTECH_CREDENTIALS`` env var — explicit file path
+        ``skill_dir`` is retained for legacy service assets, never as a
+        separate credential source.
         """
-        if _IN_MEMORY_CREDS is not None:
-            return _IN_MEMORY_CREDS
-        cf = self._creds_file
-        try:
-            with open(cf) as f:
-                line = f.read().strip()
-        except FileNotFoundError:
-            raise AuthorizerError(
-                f"Credentials not found at {cf}\n"
-                "Run `sustech sso creds set`, set SUSTECH_CREDENTIALS, "
-                "or call `sustech_survival.sso.cred_set(...)` (format: sid:password)"
-            )
-        if ':' not in line:
-            raise AuthorizerError(f"Invalid format in {cf} (need username:password)")
-        return line.split(':', 1)
+        return read_credentials()
 
     def _resolve_creds_file(self) -> Path:
-        """Resolve credentials.txt location — delegates to the unified
-        module-level :func:`resolve_creds_path` (cwd file > env var > cwd).
-        """
+        """Resolve the shared on-disk credentials location."""
         return resolve_creds_path()
 
     @property
     def _creds_file(self) -> Path:
-        if self.skill_dir:
-            if isinstance(self.skill_dir, str):
-                self.skill_dir = Path(self.skill_dir)
-            return self.skill_dir / "credentials.txt"
+        """Legacy path property; in-memory credentials have no file path."""
         return self._resolve_creds_file()
 
     def read_creds(self) -> tuple[str, str]:

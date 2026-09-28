@@ -5,8 +5,6 @@ file directly. This test greps the source tree for violations.
 
 Allowed exemptions (listed explicitly below):
   - ``sso/authorizer.py`` — the one accessor (``_read_creds``, ``_resolve_skill_dir``)
-  - ``sso/authlib/rsc_inject.py`` — has a legacy FILE fallback for Playwright
-    cookie injection, but prefers the Authorizer in-memory session first
   - ``lib/booking/auth.py`` — ``_save_session`` / ``refresh_from_disk`` are
     no-op stubs for backward compat (do NOT persist to disk)
   - ``bb/session.py`` — ``SESSION_FILE`` constant is vestigial; auth goes
@@ -28,7 +26,6 @@ SRC_DIR = Path(__file__).resolve().parents[2] / "sustech_survival"
 # Each entry is (relative_path, reason).
 EXEMPTIONS: dict[str, str] = {
     "sso/authorizer.py": "The one accessor — _read_creds, _resolve_skill_dir, _creds_file",
-    "sso/authlib/rsc_inject.py": "Legacy Playwright cookie bridge — prefers Authorizer in-memory, falls back to file",
     "lib/booking/auth.py": "_save_session/refresh_from_disk are no-op stubs for backward compat",
     "bb/session.py": "SESSION_FILE is vestigial, marked # legacy; auth goes through BBAuth",
     "bb/download.py": "Uses ~/Downloads for file output — not credentials/auth",
