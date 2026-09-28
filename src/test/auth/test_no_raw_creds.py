@@ -45,8 +45,8 @@ VIOLATIONS: list[tuple[str, str]] = [
     # Path.home() followed by / — breaks on non-default HOME.
     # Regex requires the trailing / to distinguish actual code from docstring mentions.
     (r'Path\.home\s*\(\s*\)\s*/', "Path.home()/ — breaks on non-default HOME. Use package-relative resolution."),
-    # session.json literal in code (not comments) — disk-persisted sessions are the anti-pattern
-    (r'["\']session\.json["\']', 'session.json disk persistence — use Authorizer in-memory TTL (iron law #12)'),
+    # Also catch names such as wos_session.json; only legacy readers are exempted.
+    (r'["\'][^"\']*session[^"\']*\.json["\']', 'session JSON disk persistence — use Authorizer in-memory TTL (iron law #12)'),
 ]
 
 
