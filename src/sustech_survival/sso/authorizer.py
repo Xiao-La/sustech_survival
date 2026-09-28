@@ -133,20 +133,33 @@ def write_credentials(sid: str, password: str, path: Optional[Path] = None) -> P
     Default target is the active credentials location: the
     ``SUSTECH_CREDENTIALS`` env path if set, otherwise
     ``~/.sustech_survival/credentials.txt``. Creates parent dirs and chmods
-    to 0600 (owner read/write only).
+    to 0600 (owner read/write only). The temporary file is private from the
+    moment it is created, including before the atomic replacement.
     """
     target = path or resolve_creds_path()
     if ":" in sid or "\n" in sid or "\n" in password:
         raise AuthorizerError("sid/password must not contain ':' or newlines")
     import os
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_suffix(".tmp")
-    tmp.write_text(f"{sid}:{password}\n", encoding="utf-8")
+    import tempfile
+
+    target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if target.parent == _cache.config_root():
+        # This directory may predate the private credential file.
+        try:
+            os.chmod(target.parent, 0o700)
+        except (OSError, NotImplementedError):  # Windows permissions differ
+            pass
+
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp",
+                                     dir=target.parent)
     try:
-        os.chmod(tmp, 0o600)
-    except (OSError, NotImplementedError):  # Windows: no-op-ish; site-packages layout ok
-        pass
-    tmp.replace(target)
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(f"{sid}:{password}\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(tmp_name, target)
+    finally:
+        Path(tmp_name).unlink(missing_ok=True)
     return target
 
 
