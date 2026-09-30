@@ -1,5 +1,6 @@
 # PDF fetching — download open-access PDFs
 
+from .. import _net
 import os
 import re
 import time
@@ -11,7 +12,7 @@ from typing import Optional
 from .models import Paper
 from .openaccess import resolve_oa_pdf
 
-DOWNLOAD_TIMEOUT = 60
+DOWNLOAD_TIMEOUT = _net.HTTP_DEFAULT  # central default (config.json "timeouts")
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 HEADERS = {"User-Agent": USER_AGENT}
 

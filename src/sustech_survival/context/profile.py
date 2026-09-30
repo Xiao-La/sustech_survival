@@ -17,6 +17,7 @@ Every network call is guarded — a missing field never crashes profile
 generation; it renders ``(unknown)`` and moves on.
 """
 from __future__ import annotations
+from .. import _net
 
 from pathlib import Path
 from typing import Any, Optional
@@ -71,9 +72,9 @@ def _get_json(auth, url: str, *, post_data: Optional[dict] = None) -> dict:
     """GET/POST a TIS endpoint and return JSON, or {} on any failure."""
     try:
         if post_data is not None:
-            r = auth.post(url, data=post_data, timeout=10)
+            r = auth.post(url, data=post_data, timeout=_net.service_timeout("http"))
         else:
-            r = auth.get(url, timeout=10)
+            r = auth.get(url, timeout=_net.service_timeout("http"))
         if r.status_code != 200:
             return {}
         return r.json() or {}

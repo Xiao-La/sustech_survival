@@ -35,6 +35,7 @@ CLI:
     python -m sustech_survival.lib.search --detail "cdi_proquest_miscellaneous_1901310093"
 """
 from __future__ import annotations
+from .. import _net
 
 import re
 import urllib.parse
@@ -343,11 +344,11 @@ def search(query: Optional[str] = None, *,
             limit=limit, offset=offset, sort_by=sort_by,
             lang=lang,
         )
-        page.goto(url, wait_until="domcontentloaded", timeout=20000)
+        page.goto(url, wait_until="domcontentloaded", timeout=_net.page_timeout_ms("library"))
         # SPA renders the result list after the JS bundle runs.
         page.wait_for_selector(
             ".list-item-primary-content.result-item-primary-content",
-            timeout=15000,
+            timeout=_net.service_timeout("http"),
         )
         # Pull out each result row by the canonical selectors.
         items = page.query_selector_all(
@@ -420,9 +421,9 @@ def detail(docid: str, *, headless: bool = True) -> Optional[BookDetail]:
                     "domain": ".sustech.edu.cn", "path": "/",
                 }])
         page = ctx.new_page()
-        page.goto(url, wait_until="domcontentloaded", timeout=20000)
+        page.goto(url, wait_until="domcontentloaded", timeout=_net.page_timeout_ms("library"))
         # Wait for the brief-result inside the full-view to render.
-        page.wait_for_selector("prm-full-view", timeout=15000)
+        page.wait_for_selector("prm-full-view", timeout=_net.page_timeout_ms("library"))
         # The detail page renders text into a prm-full-view container.
         # We walk that text and pattern-match the labelled fields.
         full_text = page.inner_text("prm-full-view") or ""

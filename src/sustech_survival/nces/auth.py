@@ -44,6 +44,7 @@ context). Must go through the full chain.
 This is what NCESAuth.login() walks.
 """
 from __future__ import annotations
+from .. import _net
 
 import re
 from typing import TYPE_CHECKING, Optional
@@ -166,7 +167,7 @@ class NCESAuth(CASAuthorizer):
         r = sess.get(
             "https://ncesnext.com/login/oauth/",
             allow_redirects=False,
-            timeout=15,
+            timeout=_net.service_timeout("nces"),
         )
         if r.status_code != 302:
             return {}
@@ -177,12 +178,12 @@ class NCESAuth(CASAuthorizer):
         # Step 2: Use kc_idp_hint to skip the Keycloak login form and go
         # directly to the CAS broker (cra-cas-proxy-direct).
         hint_url = kc_url + "&kc_idp_hint=cra-cas-proxy-direct"
-        r_broker = sess.get(hint_url, timeout=15, allow_redirects=False)
+        r_broker = sess.get(hint_url, timeout=_net.service_timeout("nces"), allow_redirects=False)
         if r_broker.status_code not in (302, 303):
             return {}
 
         # Step 3: Follow broker → cas-proxy/authorize → CAS login page
-        r = sess.get(r_broker.headers["Location"], allow_redirects=True, timeout=15)
+        r = sess.get(r_broker.headers["Location"], allow_redirects=True, timeout=_net.service_timeout("nces"))
         if r.status_code != 200:
             return {}
 
@@ -213,7 +214,7 @@ class NCESAuth(CASAuthorizer):
                 "submit": "登录",
             },
             allow_redirects=True,
-            timeout=30,
+            timeout=_net.service_timeout("nces"),
         )
         # Verify: landed on ncesnext.com AND navbar shows a logged-in user
         # link (e.g. `<a href="/user/2862">Lynn_Reed</a>`). The "登录"
@@ -238,7 +239,7 @@ class NCESAuth(CASAuthorizer):
         so NCESAuth can be used independently of the scraper (and so the
         [nces] extra isn't required for auth — only for scraping).
         """
-        r = sess.get("https://ncesnext.com/course/?sort_by=rating", timeout=15)
+        r = sess.get("https://ncesnext.com/course/?sort_by=rating", timeout=_net.service_timeout("nces"))
         m = re.search(
             r'"id":"([0-9a-f-]{36})"[^}]*"randomData":"([0-9a-f]+)"'
             r'[^}]*"difficulty":(\d+)',
@@ -264,5 +265,5 @@ class NCESAuth(CASAuthorizer):
                 "redir": "https://ncesnext.com/course/?sort_by=rating",
                 "elapsedTime": 50,
             },
-            timeout=15,
+            timeout=_net.service_timeout("nces"),
         )

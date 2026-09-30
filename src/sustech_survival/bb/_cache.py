@@ -23,9 +23,14 @@ CACHE_DIR = _pkg_cache.cache_path("bb")
 DEFAULT_TTL = 3600  # 1 hour
 
 
+# Bump when a cached payload's SHAPE changes (e.g. items gained attachment
+# entries) so stale rows from the previous schema are never served.
+CACHE_VERSION = "v3"
+
+
 def cache_key(prefix, *args) -> str:
-    """Build a safe filename from prefix + args."""
-    parts = [prefix] + [str(a).replace("/", "_").replace("=", "_") for a in args]
+    """Build a safe filename from prefix + args (version-tagged)."""
+    parts = [CACHE_VERSION, prefix] + [str(a).replace("/", "_").replace("=", "_") for a in args]
     return "_".join(parts) + ".json"
 
 

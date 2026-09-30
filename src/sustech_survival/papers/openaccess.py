@@ -1,3 +1,4 @@
+from .. import _net
 # Unpaywall — open-access PDF resolution
 
 import requests
@@ -20,7 +21,7 @@ def resolve_oa_pdf(doi: str) -> tuple[bool, Optional[str]]:
         r = requests.get(
             f"{UNPAYWALL_BASE}/{doi}",
             params={"email": EMAIL},
-            timeout=10
+            timeout=_net.service_timeout("papers")
         )
         if r.status_code == 404:
             return False, None

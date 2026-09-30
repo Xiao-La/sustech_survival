@@ -7,6 +7,7 @@ SKILL_ROOT = _Path(__file__).resolve().parent.parent.parent.parent
 
 __all__ = ["run", "get_current_courses"]
 
+from sustech_survival import _net
 from sustech_survival.exceptions import NetworkError, SessionExpired
 from sustech_survival.sso import TISAuth
 
@@ -72,7 +73,7 @@ def get_courses(session, semester: str = None):
             "X-Requested-With": "XMLHttpRequest",
             "Content-Type": "application/json",
         },
-        timeout=15,
+        timeout=_net.service_timeout("tis"),
     )
     if r.status_code == 401:
         raise SessionExpired("TIS session expired. Re-authenticate.")

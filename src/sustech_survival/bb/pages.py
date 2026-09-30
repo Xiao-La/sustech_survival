@@ -89,8 +89,11 @@ def _dict_to_item(row: dict) -> Item:
     if itype == "folder":
         return FolderItem(sub_id, title, bb_url, desc, "")
     if itype == "inline":
+        atts = [(n, u) for n, u in files if u.startswith("_bbatt:")]
         return InlineItem(sub_id, title, bb_url, desc, "",
-                          inline_imgs=[u for _, u in files])
+                          inline_imgs=[u for _, u in files
+                                       if not u.startswith("_bbatt:")],
+                          files=atts)
     if itype == "link":
         return LinkItem(sub_id, title, bb_url, desc, "", ext_urls=[])
     if itype == "text":

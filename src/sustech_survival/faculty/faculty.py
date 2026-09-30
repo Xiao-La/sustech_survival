@@ -21,6 +21,7 @@ CLI:
     python -m sustech_survival.faculty <depts|list|get|search|render> [...]
 """
 from __future__ import annotations
+from .. import _net
 
 import sys
 import time
@@ -152,7 +153,7 @@ class FacultyClient:
     def get(self, slug: str) -> Faculty:
         """Fetch one faculty profile. ~2.2s."""
         url = Faculty.from_index_card(IndexCard(slug=slug, name="")).profile_url_resolved
-        r = self.session.get(url, timeout=20)
+        r = self.session.get(url, timeout=_net.service_timeout("faculty"))
         r.raise_for_status()
         return Faculty.from_profile_html(r.text, slug=slug)
 
@@ -223,14 +224,14 @@ class FacultyClient:
         r = self.session.get(
             f"{self.BASE_URL}/index.php",
             params={"ajax": "users", "page": page, "field": dept, "lang": "zh"},
-            timeout=15,
+            timeout=_net.service_timeout("faculty"),
         )
         r.raise_for_status()
         return r.text
 
     def _fetch_profile(self, slug: str) -> Faculty:
         url = Faculty.from_index_card(IndexCard(slug=slug, name="")).profile_url_resolved
-        r = self.session.get(url, timeout=20)
+        r = self.session.get(url, timeout=_net.service_timeout("faculty"))
         r.raise_for_status()
         return Faculty.from_profile_html(r.text, slug=slug)
 

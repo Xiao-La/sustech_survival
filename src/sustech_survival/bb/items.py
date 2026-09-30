@@ -1,3 +1,4 @@
+from .. import _net
 # Items - BB item type hierarchy
 """
 Item classes for all Blackboard content item types.
@@ -378,7 +379,7 @@ class HomeworkItem(Item):
             f"&course_id=_{course_id}_1"
             f"&group_id={group_id}"
         )
-        r = sess.get(url, timeout=15)
+        r = sess.get(url, timeout=_net.service_timeout("bb"))
         if r.status_code != 200:
             raise RuntimeError(
                 f"GET {url} returned {r.status_code} — "
@@ -627,7 +628,7 @@ class HomeworkItem(Item):
 
         try:
             from sustech_survival.sso import BBAuth
-            auth = BBAuth(skill_dir=str(BB_DIR.parent.parent.parent))
+            auth = BBAuth()
             ok, reason = auth.ensure()
             if not ok:
                 self.attempts_cached = []
@@ -642,7 +643,7 @@ class HomeworkItem(Item):
             cols_data = sess.get(
                 f"{BB_BASE}/learn/api/public/v1/courses/{bid}/gradebook/columns"
                 f"?_fields=id,contentId",
-                timeout=10
+                timeout=_net.service_timeout("bb")
             ).json()
             col_id = None
             for col in cols_data.get("results", []):
@@ -656,7 +657,7 @@ class HomeworkItem(Item):
             # 2. Get attempts for this column
             attempts_data = sess.get(
                 f"{BB_BASE}/learn/api/public/v1/courses/{bid}/gradebook/columns/{col_id}/attempts",
-                timeout=10
+                timeout=_net.service_timeout("bb")
             ).json()
 
             results = []
@@ -702,28 +703,38 @@ class HomeworkItem(Item):
 
 
 class InlineItem(Item):
-    """Item with inline images embedded in the page content (not downloadable)."""
+    """Item with inline images embedded in the page content, plus any
+    real attachments (PDF/docx) the item carries via the attachments API."""
     TYPE = "inline"
 
     def __init__(self, sub_id: str, title: str, bb_url: str = "",
                  description: str = "", description_html: str = "",
-                 inline_imgs: list = None):
+                 inline_imgs: list = None, files: list = None):
         super().__init__(sub_id, title, bb_url, description, description_html)
         self.inline_imgs = inline_imgs or []
+        self.files = files or []
 
     @property
     def has_inline_content(self) -> bool:
         return bool(self.inline_imgs)
 
+    @property
+    def has_attachment(self) -> bool:
+        return bool(self.files)
+
     def to_row(self) -> str:
         desc = self.fmt_desc()
         return (f"{self.sub_id}\t{self.TYPE}\t{self.title[:40]}\t"
-                f"0\t{len(self.inline_imgs)}\t-\t-\t{desc}")
+                f"{len(self.files)}\t{len(self.inline_imgs)}\t-\t-\t{desc}")
 
     def to_markdown(self) -> str:
         lines = [f"## {self.title}\n"]
         if self.description:
             lines.append(f"{self.description}\n")
+        if self.files:
+            lines.append("**Attachments:**")
+            for name, url in self.files:
+                lines.append(f"- {name}")
         for url in self.inline_imgs:
             lines.append(f"![inline image]({url})")
         return "\n".join(lines)

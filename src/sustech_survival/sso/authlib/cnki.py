@@ -1,3 +1,4 @@
+from ... import _net
 # =============================================================================
 # CNKI (中国知网) — Shibboleth FSSO Authorizer
 # =============================================================================
@@ -75,7 +76,7 @@ class CNKIAuth(ShibbolethAuthorizer):
         try:
             # -- Step 1: Navigate to CNKI Shibboleth → redirect to SUSTech CAS -
             print(f"[CNKI] Navigating to CNKI FSSO (SUSTech) ...")
-            page.goto(shib_url, wait_until="commit", timeout=30000)
+            page.goto(shib_url, wait_until="commit", timeout=_net.page_timeout_ms("cnki"))
             page.wait_for_timeout(3000)
             print(f"  → URL: {page.url}")
 
@@ -98,7 +99,7 @@ class CNKIAuth(ShibbolethAuthorizer):
                         'button:has-text("接受"), '
                         'button:has-text("继续")'
                     ).first
-                    if accept_btn.is_visible(timeout=3000):
+                    if accept_btn.is_visible(timeout=_net.service_timeout("cnki")):
                         accept_btn.click()
                         print("  → Accepted IdP consent")
                         page.wait_for_timeout(5000)
@@ -107,7 +108,7 @@ class CNKIAuth(ShibbolethAuthorizer):
 
             # Wait for redirect back to CNKI (SAML POST from IdP)
             try:
-                page.wait_for_url("**cnki.net**", timeout=15000)
+                page.wait_for_url("**cnki.net**", timeout=_net.page_timeout_ms("cnki"))
                 page.wait_for_timeout(3000)
             except Exception:
                 pass  # May already be at CNKI

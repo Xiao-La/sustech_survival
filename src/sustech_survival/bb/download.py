@@ -17,6 +17,7 @@ reports attempts without downloading files.
 API:
   from download import download_content, resolve_course
 """
+from .. import _net
 import json, re, sys, os, argparse
 from pathlib import Path
 from urllib.parse import unquote
@@ -24,6 +25,7 @@ from urllib.parse import unquote
 import requests
 
 from sustech_survival import _cache
+from .query import _core_id, resolve_course
 
 # -- Session ------------------------------------------------------------------
 
@@ -64,7 +66,7 @@ from sustech_survival.exceptions import SessionExpired as _SessionExpired
 def api(path, session=None):
     if session is None:
         session = _session()
-    r = session.get(BB_BASE + path, timeout=15)
+    r = session.get(BB_BASE + path, timeout=_net.service_timeout("bb"))
     if r.status_code == 401:
         raise _SessionExpired("BB session expired. Run `bb.py login`.")
     r.raise_for_status()
@@ -73,69 +75,6 @@ def api(path, session=None):
 
 # -- Course/Content Resolution -------------------------------------------------
 
-
-def resolve_course(content_id):
-    """
-    Find which course owns a content_id.
-    Returns course_id string e.g. "8343".
-    """
-    sess = session()
-    cids = [f"_{content_id}_1"]
-
-    # Fast path: search the current user's own enrolled courses first (the
-    # term-wide catalog walk below misses courses outside term _57_1 and is slow).
-    try:
-        me = sess.get(f"{BB_BASE}/learn/api/public/v1/users/me", timeout=10).json()
-        uid = me["id"]
-        enr = sess.get(f"{BB_BASE}/learn/api/public/v1/users/{uid}/courses", timeout=10).json()
-        for e in enr.get("results", []):
-            bid = e.get("courseId", "")
-            if not bid:
-                continue
-            for cid in cids:
-                try:
-                    r = sess.get(
-                        f"{BB_BASE}/learn/api/public/v1/courses/{bid}/contents/{cid}",
-                        timeout=5,
-                    )
-                    if r.status_code == 200:
-                        return bid.lstrip("_").rstrip("_1")
-                except Exception:
-                    pass
-    except Exception:
-        pass
-
-    # Fallback: walk the paginated course list (term _57_1) to find the owner.
-    offset = 0
-    while True:
-        try:
-            data = sess.get(
-                f"{BB_BASE}/learn/api/public/v1/courses?termId=_57_1&offset={offset}",
-                timeout=10
-            ).json()
-        except Exception:
-            break
-        for c in data.get("results", []):
-            bid = c["id"]
-            for cid in cids:
-                try:
-                    r = sess.get(
-                        f"{BB_BASE}/learn/api/public/v1/courses/{bid}/contents/{cid}",
-                        timeout=5
-                    )
-                    if r.status_code == 200:
-                        return bid.lstrip("_").rstrip("_1")
-                except Exception:
-                    pass
-        paging = data.get("paging", {})
-        if "nextPage" not in paging:
-            break
-        offset += 100
-
-    raise ValueError(f"content_id {content_id} not found in any course")
-
-
-# -- Content Item Fetcher -----------------------------------------------------
 
 def normalize_bb_id(raw):
     """Ensure BB-format with single underscore wrapper: _xxx_1.
@@ -171,17 +110,20 @@ def extract_bbcswebdav_urls(html_body):
 
 # -- Content File Scraper (REST) ----------------------------------------------
 
-def scrape_content_files(content_id):
-    """
-    Return (title, files) for a content page using REST API.
+def scrape_content_files(content_id, course_id=None):
+    """Return (title, files) for a content page using REST API.
 
     file entries are (name, url_or_path):
-      • For x-bb-document items: bbcswebdav URLs extracted from body HTML
-      • For x-bb-file items: (fileName, content_id) — no direct REST download URL
+      • x-bb-document: real attachments first (manual PDF/docx, via the
+        attachments API → ``_bbatt:<id>|<course>|<content>``), then
+        bbcswebdav inline images from the body HTML
+      • x-bb-file: (fileName, ``_bbfile:<content_id>``) — no REST download URL
 
-    Raises ValueError if content_id not in any known course.
+    course_id: pass it when the content lives outside your enrollments;
+    otherwise it is resolved from the content id.
+    Raises ValueError if content_id not in any enrolled course.
     """
-    course_id = resolve_course(content_id)
+    course_id = course_id or resolve_course(content_id)
     item = get_content_item(course_id, content_id)
     if not item:
         raise ValueError(f"Cannot fetch content {content_id}")
@@ -189,29 +131,48 @@ def scrape_content_files(content_id):
     title = item.get("title", "")
     handler = item.get("contentHandler", {}).get("id", "")
     body = item.get("body", "") or ""
+    sess = session()
 
     files = []
 
+    def _attachments():
+        """Real attachments (PDF/docx) that never appear in the body HTML."""
+        out = []
+        try:
+            att = api(
+                f"/learn/api/public/v1/courses/_{course_id}_1/contents"
+                f"/_{content_id}_1/attachments?_fields=id,fileName",
+                sess,
+            )
+            for a in att.get("results", []):
+                name = unquote(a.get("fileName", "")) or "attachment"
+                out.append((name, f"_bbatt:{a['id']}|{course_id}|{content_id}"))
+        except Exception:
+            pass
+        return out
+
     if handler == "resource/x-bb-document":
-        # Inline content — extract bbcswebdav URLs from HTML body
-        urls = extract_bbcswebdav_urls(body)
-        for url in urls:
-            name = url.split("/")[-1].split("?")[0]
-            name = unquote(name)
+        # Attachments first: they are the real deliverable (manual PDF, docx).
+        files.extend(_attachments())
+        # Inline images embedded in the body (figures, posters).
+        for url in extract_bbcswebdav_urls(body):
+            name = unquote(url.split("/")[-1].split("?")[0])
             files.append((name, url))
 
     elif handler == "resource/x-bb-file":
-        # File item — REST gives filename only, not download URL
-        fname = item.get("contentHandler", {}).get("file", {}).get("fileName", "")
-        if fname:
-            files.append((unquote(fname), f"_bbfile:{content_id}"))
+        # x-bb-file often ALSO exposes a downloadable attachment; the bare
+        # contentHandler filename has no REST download URL.
+        files.extend(_attachments())
+        if not files:
+            fname = item.get("contentHandler", {}).get("file", {}).get("fileName", "")
+            if fname:
+                files.append((unquote(fname), f"_bbfile:{content_id}"))
 
     elif handler == "resource/x-bb-assignment":
-        # Assignment — might have inline attachments in body
-        urls = extract_bbcswebdav_urls(body)
-        for url in urls:
-            name = url.split("/")[-1].split("?")[0]
-            files.append((unquote(name), url))
+        files.extend(_attachments())
+        for url in extract_bbcswebdav_urls(body):
+            name = unquote(url.split("/")[-1].split("?")[0])
+            files.append((name, url))
 
     return title, files
 
@@ -219,21 +180,59 @@ def scrape_content_files(content_id):
 # -- File Downloader -----------------------------------------------------------
 
 def download_file(out_path, url_or_path, session_cookies):
-    """Download a file from a URL or special path."""
+    """Download a file from a URL, or an attachment special path.
+
+    Special paths:
+      _bbatt:<attachment_id>|<course_id>|<content_id>
+          → /learn/api/public/v1/courses/{bid}/contents/{cid}/attachments/{aid}/download
+      _bbfile:<content_id>  → still unsupported (no direct REST download)
+    """
     if url_or_path.startswith("_bbfile:"):
         raise ValueError(f"Cannot download x-bb-file content directly: {url_or_path}")
-    if url_or_path.startswith("http"):
+    if url_or_path.startswith("_bbatt:"):
+        # format: _bbatt:<attachment_id>|<course_id>|<content_id>
+        aid = url_or_path.split(":", 1)[1].split("|")[0]
+        _, course_id, content_id = url_or_path.split("|")
+        full_url = (
+            f"{BB_BASE}/learn/api/public/v1/courses/_{course_id}_1/contents"
+            f"/_{content_id}_1/attachments/{aid}/download"
+        )
+    elif url_or_path.startswith("http"):
         full_url = url_or_path
     else:
         # body HTML uses root-relative URLs like "bbcswebdav/pid-.../xid-..."
         prefix = "/" if not url_or_path.startswith("/") else ""
         full_url = BB_BASE + prefix + url_or_path
-    resp = requests.get(full_url, cookies=session_cookies, timeout=30, stream=True)
+    resp = requests.get(full_url, cookies=session_cookies, timeout=_net.service_timeout("bb"), stream=True)
     resp.raise_for_status()
     with open(out_path, "wb") as f:
         for chunk in resp.iter_content(chunk_size=65536):
             f.write(chunk)
     return out_path
+
+
+_MAGIC = [
+    (b"%PDF", ".pdf"),
+    (b"\x89PNG", ".png"),
+    (b"\xff\xd8\xff", ".jpg"),
+    (b"GIF8", ".gif"),
+    (b"PK\x03\x04", ".zip"),      # docx/xlsx/pptx are zip containers
+    (b"\xd0\xcf\x11\xe0", ".doc"),  # legacy OLE (doc/xls/ppt)
+]
+
+
+def _sniff_ext(path: Path) -> str:
+    """Guess an extension from magic bytes for extensionless downloads
+    (BB serves inline images as bare ``xid-…`` names)."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(8)
+    except OSError:
+        return ""
+    for magic, ext in _MAGIC:
+        if head.startswith(magic):
+            return ext
+    return ""
 
 
 def slugify(name):
@@ -242,13 +241,14 @@ def slugify(name):
     return re.sub(r"\s+", "_", name).strip("_")[:200]
 
 
-def download_content(content_id, out_dir=None):
+def download_content(content_id, out_dir=None, course_id=None):
     """
     Download all files from a BB content page.
 
+    course_id: optional explicit course (skips the auto-resolve).
     Returns list of saved file paths.
     """
-    title, files = scrape_content_files(content_id)
+    title, files = scrape_content_files(content_id, course_id=course_id)
     if not files:
         print(f"[download_content] No files: {title}")
         return []
@@ -267,8 +267,15 @@ def download_content(content_id, out_dir=None):
                 print(f"  ⚠ {name}: direct download not available via REST")
                 continue
             download_file(out_path, url_or_path, session_cookies)
+            # BB inline images arrive as bare "xid-…" — give them a real suffix
+            if not out_path.suffix:
+                ext = _sniff_ext(out_path)
+                if ext:
+                    renamed = out_path.with_name(out_path.name + ext)
+                    out_path.rename(renamed)
+                    out_path = renamed
             size = out_path.stat().st_size
-            print(f"  ✓ {title}: {name} ({size:,})")
+            print(f"  ✓ {title}: {out_path.name} ({size:,})")
             saved.append(str(out_path))
         except Exception as e:
             print(f"  ✗ {name}: {e}")
@@ -291,7 +298,7 @@ def get_assignment_attempts(course_id, column_id):
         results = []
         for i, att in enumerate(data.get("results", [])):
             results.append((
-                att["id"].lstrip("_").rstrip("_1"),
+                att["id"].lstrip("_"),
                 i + 1,
                 att.get("created", "")[:19].replace("T", " "),
             ))
@@ -339,7 +346,7 @@ def scrape_attempt_details(ctx, numeric_cid, content_id, attempt_id):
     att_data = None
     att_id_stripped = attempt_id.lstrip("_")
     for att in data.get("results", []):
-        if att["id"].lstrip("_").rstrip("_1") == att_id_stripped:
+        if att["id"].lstrip("_") == att_id_stripped:
             att_data = att
             break
 
@@ -381,7 +388,7 @@ def get_column_id_for_content(course_id, content_id, sess=None):
     item = get_content_item(course_id, content_id, sess)
     if not item:
         return None
-    return item.get("contentHandler", {}).get("gradeColumnId", "").lstrip("_").rstrip("_1")
+    return _core_id(item.get("contentHandler", {}).get("gradeColumnId", ""))
 
 
 # -- Submission Download (gradebook REST metadata only) ----------------------

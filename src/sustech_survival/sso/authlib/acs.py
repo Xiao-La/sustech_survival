@@ -1,3 +1,4 @@
+from ... import _net
 # =============================================================================
 # ACS Publications — Cloudscraper Authorizer
 # =============================================================================
@@ -38,7 +39,7 @@ class ACSAuth(Authorizer):
 
     def check(self) -> tuple[bool, str]:
         scraper = self.fresh_session()
-        r = scraper.get(ACS_BASE, timeout=15)
+        r = scraper.get(ACS_BASE, timeout=_net.service_timeout("acs"))
         if r.status_code == 200 and len(r.text) > 5000 and "acs" in r.text.lower():
             return True, "ACS Publications accessible via cloudscraper"
         return False, f"ACS returned {r.status_code}"
@@ -56,7 +57,7 @@ class ACSAuth(Authorizer):
     def search(self, query: str, max_results: int = 25) -> dict:
         params = {"query": query, "pageSize": min(max_results, 100)}
         # ACS does not have a simple public API; HTML search may work
-        r = self.scraper.get(f"{ACS_BASE}/action/doSearch", params=params, timeout=20)
+        r = self.scraper.get(f"{ACS_BASE}/action/doSearch", params=params, timeout=_net.service_timeout("acs"))
         if r.status_code != 200:
             return {"error": f"HTTP {r.status_code}", "results": []}
         return {"results": [], "count": 0, "note": "ACS HTML search not yet parsed"}

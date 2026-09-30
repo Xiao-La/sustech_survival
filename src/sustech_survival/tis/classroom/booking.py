@@ -43,6 +43,7 @@ Known response-shape quirks (probed 2026-06-28):
   - queryJrjtrq returns null — don't rely on it
 """
 from __future__ import annotations
+from ... import _net
 
 import json
 from typing import Any, Dict, List, Optional
@@ -157,9 +158,9 @@ class VenueBorrowClient:
         sess = self.ensure_session()
         try:
             if json_body is not None:
-                r = sess.post(url, json=json_body, timeout=30)
+                r = sess.post(url, json=json_body, timeout=_net.service_timeout("tis"))
             else:
-                r = sess.post(url, data=data or {}, timeout=30)
+                r = sess.post(url, data=data or {}, timeout=_net.service_timeout("tis"))
         except requests.RequestException as e:
             raise BorrowError(f"Network error calling {url}: {e}") from e
 

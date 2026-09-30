@@ -1,3 +1,4 @@
+from ... import _net
 # =============================================================================
 # Web of Science (WoS) — Shibboleth SP Authorizer
 # =============================================================================
@@ -56,7 +57,7 @@ class WoSAuth(ShibbolethAuthorizer):
             combobox = page.locator(
                 "mat-select[formcontrolname='federationName']"
             ).first
-            combobox.click(timeout=10000)
+            combobox.click(timeout=_net.service_timeout("wos"))
             time.sleep(1.5)
         except Exception as e:
             print(f"  ⚠ Could not click Institution combobox: {e}")
@@ -65,7 +66,7 @@ class WoSAuth(ShibbolethAuthorizer):
         # Step 2: Select "CHINA CERNET Federation"
         try:
             cernet = page.get_by_text("CHINA CERNET Federation", exact=True).first
-            cernet.click(timeout=10000)
+            cernet.click(timeout=_net.service_timeout("wos"))
             time.sleep(0.8)
             print("  → Selected: CHINA CERNET Federation")
         except Exception as e:
@@ -78,7 +79,7 @@ class WoSAuth(ShibbolethAuthorizer):
                 go_btn = page.get_by_text("Go to institution", exact=True).first
             else:
                 go_btn = page.get_by_text("转到机构", exact=True).first
-            go_btn.click(timeout=10000)
+            go_btn.click(timeout=_net.service_timeout("wos"))
             time.sleep(1.0)
         except Exception as e:
             print(f"  ⚠ Could not click 'Go to institution' button: {e}")
@@ -115,7 +116,7 @@ class WoSAuth(ShibbolethAuthorizer):
         try:
             # -- Step 1: Clarivate access portal -------------------------------
             print(f"[WoS] Navigating to {self.SP_INIT_URL} ...")
-            page.goto(self.SP_INIT_URL, wait_until="domcontentloaded", timeout=30000)
+            page.goto(self.SP_INIT_URL, wait_until="domcontentloaded", timeout=_net.page_timeout_ms("wos"))
             page.wait_for_timeout(3000)
             print(f"  → {page.url}")
 
@@ -128,7 +129,7 @@ class WoSAuth(ShibbolethAuthorizer):
 
             # Wait for redirect to CARSI DS WAYF
             try:
-                page.wait_for_url("**ds.carsi.edu.cn**", timeout=15000)
+                page.wait_for_url("**ds.carsi.edu.cn**", timeout=_net.page_timeout_ms("wos"))
                 page.wait_for_timeout(2000)
                 print(f"  → CARSI WAYF: {page.url}")
             except Exception as e:
@@ -152,7 +153,7 @@ class WoSAuth(ShibbolethAuthorizer):
 
             # Wait for SUSTech CAS
             try:
-                page.wait_for_url("**cas.sustech.edu.cn**", timeout=30000)
+                page.wait_for_url("**cas.sustech.edu.cn**", timeout=_net.page_timeout_ms("wos"))
                 page.wait_for_timeout(2000)
                 print(f"  → SUSTech CAS: {page.url}")
             except Exception as e:
@@ -168,7 +169,7 @@ class WoSAuth(ShibbolethAuthorizer):
 
             # Wait for IdP consent or ACS redirect
             try:
-                page.wait_for_url("**idp.sustech.edu.cn**", timeout=30000)
+                page.wait_for_url("**idp.sustech.edu.cn**", timeout=_net.page_timeout_ms("wos"))
                 page.wait_for_timeout(3000)
                 print(f"  → At SUSTech IdP consent page: {page.url}")
             except Exception:
@@ -186,7 +187,7 @@ class WoSAuth(ShibbolethAuthorizer):
                         'button:has-text("接受"), '
                         'button:has-text("继续")'
                     ).first
-                    if accept_btn.is_visible(timeout=3000):
+                    if accept_btn.is_visible(timeout=_net.service_timeout("wos")):
                         accept_btn.click()
                         print("  → Accepted IdP consent")
                         page.wait_for_timeout(8000)

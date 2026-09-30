@@ -20,6 +20,7 @@ Cache: stored under the unified cache root
 Default TTL: 3600s. Pass ``max_age=0`` to force a refresh.
 """
 from __future__ import annotations
+from ... import _net
 
 import json
 import re
@@ -216,7 +217,7 @@ class ClassroomOccupancy:
                 "p_kcxz": "", "p_chaxunpylx": "3",
                 "pageNum": str(pg), "pageSize": str(page_size),
             }
-            r = sess.post(TIS_CAMPUS_SCHEDULE_URL, data=params, timeout=30)
+            r = sess.post(TIS_CAMPUS_SCHEDULE_URL, data=params, timeout=_net.service_timeout("tis"))
             r.raise_for_status()
             d = r.json()
             items = d.get("rwList", {}).get("list") or []
@@ -415,7 +416,7 @@ class ClassroomOccupancy:
                 "https://tis.sustech.edu.cn/component/queryDiDian",
                 data=params,
                 headers={"RoleCode": "00"},
-                timeout=60,
+                timeout=_net.service_timeout("tis"),
             )
             if not r.text.strip():
                 break

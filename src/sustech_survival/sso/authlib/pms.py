@@ -176,8 +176,8 @@ class PMSAuth(Authorizer):
         ctx = browser.new_context()
         page = ctx.new_page()
         try:
-            page.goto(PMS_SERVICE, wait_until="commit", timeout=30000)
-            page.wait_for_load_state("networkidle", timeout=15000)
+            page.goto(PMS_SERVICE, wait_until="commit", timeout=_net.page_timeout_ms("pms"))
+            page.wait_for_load_state("networkidle", timeout=_net.page_timeout_ms("pms"))
 
             if "cas.sustech.edu.cn" in page.url:
                 page.fill('input[type="text"], input[name="username"]', username)
@@ -186,7 +186,7 @@ class PMSAuth(Authorizer):
                 if not btn.count():
                     btn = page.locator("button:has-text('鐧诲綍')").first
                 btn.click()
-                page.wait_for_load_state("networkidle", timeout=20000)
+                page.wait_for_load_state("networkidle", timeout=_net.page_timeout_ms("pms"))
 
             # Drain any further redirects
             for _ in range(5):

@@ -1,3 +1,4 @@
+from .. import _net
 from sustech_survival.exceptions import SessionExpired as _SessionExpired
 
 """
@@ -28,6 +29,14 @@ _TYPE_ICON = {
 
 # -- Session ------------------------------------------------------------------
 
+class ContentNotAccessible(RuntimeError):
+    """BB refused a content item's detail (HTTP 403).
+
+    Happens for courses that are past or restricted: the course tree still
+    lists (``discover_pages``), but the per-item detail endpoint refuses.
+    Callers must surface this instead of treating it as "no items".
+    """
+
 def session():
     """Return an authenticated requests.Session from the SSO BBAuth layer."""
     from sustech_survival.sso import BBAuth
@@ -45,7 +54,7 @@ def api(path, session=None):
     """GET BB REST endpoint. Returns JSON. Dies on auth error."""
     if session is None:
         session = _session()
-    r = session.get(BB_BASE + path, timeout=15)
+    r = session.get(BB_BASE + path, timeout=_net.service_timeout("bb"))
     if r.status_code == 401:
         raise _SessionExpired("BB session expired. Run `bb.py login` to refresh.")
     r.raise_for_status()
@@ -53,6 +62,16 @@ def api(path, session=None):
 
 
 # -- Course Discovery ---------------------------------------------------------
+
+def _core_id(bb_id: str) -> str:
+    """Strip BB wrapper: '_637881_1' → '637881'.
+
+    Never lstrip/rstrip — rstrip('_1') eats trailing chars from ids that
+    END in '1' (e.g. _637881_1 → 63788), corrupting lookups.
+    """
+    parts = bb_id.strip("_").split("_")
+    return parts[0] if parts else ""
+
 
 def discover_courses(term_id=None):
     """
@@ -80,9 +99,9 @@ def discover_courses(term_id=None):
     try:
         me = api("/learn/api/public/v1/users/me")
         uid = me["id"]
-        data = api(f"/learn/api/public/v1/users/{uid}/courses")
-        return [(c["courseId"].lstrip("_").rstrip("_1"), c.get("name", ""))
-                 for c in data.get("results", []) if c.get("courseId")]
+        data = api(f"/learn/api/public/v1/users/{uid}/courses?expand=course&limit=200")
+        return [(_core_id(c["courseId"]), (c.get("course") or {}).get("name", ""))
+                for c in data.get("results", []) if c.get("courseId")]
     except Exception:
         return []
 
@@ -106,7 +125,7 @@ def walk_contents(course_id, parent_id=None, session=None):
         return
 
     for item in data.get("results", []):
-        cid = item["id"].lstrip("_").rstrip("_1")
+        cid = _core_id(item["id"])
         handler = item.get("contentHandler", {}).get("id", "")
         yield (
             cid,
@@ -147,7 +166,7 @@ def discover_pages(course_id, *, refresh=False):
         root = api(f"/learn/api/public/v1/courses/{bid}/contents", sess)
         for item in root.get("results", []):
             if item.get("contentHandler", {}).get("id") == "resource/x-bb-folder":
-                cid = item["id"].lstrip("_").rstrip("_1")
+                cid = _core_id(item["id"])
                 section_map[cid] = item.get("title", "")
     except Exception:
         pass
@@ -215,7 +234,15 @@ def scrape_page_items(content_id, course_id, course_name):
 
     try:
         item = api(f"/learn/api/public/v1/courses/{bid}/contents/{cid}?_fields=id,title,body,contentHandler,hasChildren", sess)
-    except Exception:
+    except Exception as e:
+        # 403 = the site refuses this item's detail to us (past/restricted
+        # course). Never swallow it into "0 items" — callers report it.
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        if status == 403:
+            raise ContentNotAccessible(
+                f"content {content_id} in course {course_id}: 403 from BB "
+                f"(the course is past or the item is restricted)"
+            ) from e
         return []
 
     handler = item.get("contentHandler", {}).get("id", "")
@@ -240,7 +267,24 @@ def scrape_page_items(content_id, course_id, course_name):
     if itype == "inline" and body:
         webdav_urls = extract_bbcswebdav(body)
         for url in webdav_urls:
-            row["files"].append((url.split("/")[-1], url))
+            row["files"].append((url.split("/")[-1].split("?")[0], url))
+
+    # Attachments API: x-bb-document/x-bb-file/x-bb-assignment items can carry
+    # real files (PDF/docx) that never appear in the body HTML.
+    if itype in ("inline", "homework", "file"):
+        try:
+            att = api(
+                f"/learn/api/public/v1/courses/{bid}/contents/{cid}/attachments"
+                f"?_fields=id,fileName",
+                sess,
+            )
+            for a in att.get("results", []):
+                row["files"].append((
+                    a.get("fileName", ""),
+                    f"_bbatt:{a['id']}|{course_id}|{content_id}",
+                ))
+        except Exception:
+            pass
 
     try:
         _cache.set("page_items", [row], content_id, course_id)
@@ -253,46 +297,67 @@ def scrape_page_items(content_id, course_id, course_name):
 
 
 def resolve_course(content_id):
-    """
-    Find which course owns a content_id.
+    """Find which course owns a content_id → numeric course id (e.g. "8343").
 
-    Walks the paginated course list from term _57_1 to find the owning course.
+    Order of search:
 
-    Returns course_id string (numeric, e.g. "8343") or raises ValueError.
+    1. The current user's **enrolled** courses (``/users/me/courses``) — covers
+       every term the student is in, and needs no term id.
+    2. Nothing else. A previous implementation also walked a hardcoded term
+       catalog (``termId=_57_1`` = 2026 Spring), so every Fall-semester item
+       failed to resolve even though the user was enrolled in the course.
+
+    For content in a course the user is not enrolled in, pass the course
+    explicitly instead: ``bb page <content_id> -c <course_id>``.
+
+    Raises ValueError when no enrolled course claims the id.
     """
+    try:
+        from . import _cache
+    except ImportError:
+        import _cache
+
+    data, ok = _cache.get("resolve_course", content_id)
+    if ok and data:
+        return data
+
     sess = _session()
-    cids = [f"_{content_id}_1"]
+    cid = f"_{content_id}_1"
+    found = None
 
-    # Walk paginated course list
-    offset = 0
-    while True:
-        try:
-            data = sess.get(
-                f"{BB_BASE}/learn/api/public/v1/courses?termId=_57_1&offset={offset}",
-                timeout=10
-            ).json()
-        except Exception:
+    try:
+        me = api("/learn/api/public/v1/users/me", sess)
+        enr = api(f"/learn/api/public/v1/users/{me['id']}/courses", sess)
+        for e in enr.get("results", []):
+            bid = e.get("courseId", "")
+            if not bid:
+                continue
+            try:
+                api(f"/learn/api/public/v1/courses/{bid}/contents/{cid}", sess)
+            except Exception as err:
+                # 403 still MEANS this course owns the item (BB refuses the
+                # detail, not the ownership) — resolve it so the caller can
+                # report "restricted" instead of "not found anywhere".
+                if getattr(getattr(err, "response", None), "status_code", None) == 403:
+                    found = _core_id(bid)
+                    break
+                continue
+            found = _core_id(bid)
             break
+    except Exception:
+        pass
 
-        for c in data.get("results", []):
-            bid = c["id"]
-            for cid in cids:
-                try:
-                    r = sess.get(
-                        f"{BB_BASE}/learn/api/public/v1/courses/{bid}/contents/{cid}",
-                        timeout=5
-                    )
-                    if r.status_code == 200:
-                        return bid.lstrip("_").rstrip("_1")
-                except Exception:
-                    pass
+    if not found:
+        raise ValueError(
+            f"content_id {content_id} is not in any enrolled course — "
+            f"pass the course explicitly: bb page {content_id} -c <course_id>"
+        )
 
-        paging = data.get("paging", {})
-        if "nextPage" not in paging:
-            break
-        offset += 100
-
-    raise ValueError(f"content_id {content_id} not found in any course")
+    try:
+        _cache.set("resolve_course", found, content_id)
+    except Exception:
+        pass
+    return found
 
 
 # -- Full Discovery ------------------------------------------------------------
@@ -300,18 +365,29 @@ def resolve_course(content_id):
 def discover_all_items(*, course_filter=None, text_filter=None,
                        type_filter=None, hide_types=None, show_types=None,
                        has_attachments=False, content_text=None,
-                       progress=None, refresh=False):
+                       progress=None, refresh=False, course_ids=None):
     """
     Discover all items across courses via REST.
 
     Filters (same as Playwright version):
       course_filter, text_filter, type_filter, hide_types, show_types,
       has_attachments, content_text
+
+    course_ids: optional explicit iterable of numeric course ids — the item
+    scan is restricted to those courses before any page is scraped.
     """
     all_courses = discover_courses()
     if course_filter:
+        # Accept the numeric course ID that `bb courses` prints, as well as a
+        # name substring — agents copy the ID, not the full English title.
         q = course_filter.lower()
-        all_courses = [(c, n) for c, n in all_courses if q in n.lower()]
+        all_courses = [(c, n) for c, n in all_courses
+                       if q in n.lower() or q in str(c).lower()]
+    if course_ids is not None:
+        # Explicit id set (e.g. "only this semester") — filters before any
+        # page scraping, so an unrelated term costs nothing.
+        allowed = {str(c) for c in course_ids}
+        all_courses = [(c, n) for c, n in all_courses if str(c) in allowed]
     if not all_courses:
         return []
 
@@ -329,6 +405,7 @@ def discover_all_items(*, course_filter=None, text_filter=None,
         progress(0, total)
 
     all_items = []
+    denied = {}          # course_id -> pages BB refused (403)
     done = 0
     for cid, cname, pg_id, pg_title in all_pages:
         try:
@@ -336,12 +413,21 @@ def discover_all_items(*, course_filter=None, text_filter=None,
             for item in items:
                 item["course_name"] = cname
             all_items.extend(items)
+        except ContentNotAccessible:
+            denied[cid] = denied.get(cid, 0) + 1
         except Exception as e:
             print(f"Warning: page {pg_id}: {e}", file=sys.stderr)
         done += 1
         if progress and total > 0:
             progress(done, total)
         time.sleep(0.1)
+
+    if denied:
+        # Loud, not silent: these pages exist but BB will not show them, so
+        # "0 items" would be a lie about the course's content.
+        parts = ", ".join(f"{c} ({n} page(s))" for c, n in denied.items())
+        print(f"⚠  content not accessible (HTTP 403) in: {parts} — "
+              f"past/restricted course; totals exclude it", file=sys.stderr)
 
     # Filters
     if type_filter:
@@ -368,17 +454,23 @@ def discover_all_items(*, course_filter=None, text_filter=None,
 # -- Formatting ----------------------------------------------------------------
 
 def format_item(u, verbose=False):
+    """One-line search/stat row: course, CONTENT ID (for bb page/download),
+    icon, title, attachment count — then the attachment names."""
     t = u.get("type", "?")
     icon = _TYPE_ICON.get(t, "?")
-    att_count = len(u.get("files", []))
-    att_tag = f" +{att_count}" if att_count else ""
-    type_tag = f"[{t}]"
+    files = u.get("files", []) or []
     title = u.get("title", "Untitled").replace("\n", " ")
-    course = u.get("course", "")[:30]
-    print(f"  {course:<30} {type_tag:<12} {icon} {title[:40]}{att_tag}")
+    course = str(u.get("course", ""))[:7]
+    cid = str(u.get("id", ""))
+    att_tag = f"  📎 {len(files)}" if files else ""
+    print(f"  {course:<7} {cid:<7} {icon} {title[:44]}{att_tag}")
+    for fname, _path in files[:2]:
+        print(f"                   📎 {fname[:66]}")
+    if files and not verbose:
+        print(f"                   → sustech bb download {cid}")
     if verbose and u.get("desc"):
         preview = u["desc"].replace("\n", " ")[:100].strip()
-        print(f"    💬 {preview}")
+        print(f"                   💬 {preview}")
     if u.get("status"):
         for line in u["status"].split("\n"):
             print(f"    {line}")
@@ -416,7 +508,7 @@ def print_stats(stats, courses=None):
         }
     print(f"\n📊 BB Live Statistics")
     print(f"{'='*50}")
-    print(f"  Total courses:  {stats.get('total_courses', '?')}")
+    print(f"  Courses with items:  {stats.get('total_courses', '?')}")
     print(f"  Total items:   {stats.get('total_items', '?')}")
     if "item_types" in stats:
         print(f"\n📂 Item Types:")

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from ... import _net
 
 import json as _json
 from typing import Optional
@@ -238,7 +239,7 @@ class Evaluation:
         r1 = sess.post(
             f"{BASE}/personnelEvaluation/submitSaveEvaluation",
             json=body1,
-            timeout=15,
+            timeout=_net.service_timeout("tis"),
         )
         result1 = r1.json()
         self.last_save_result = result1
@@ -263,7 +264,7 @@ class Evaluation:
             r2 = sess.post(
                 f"{BASE}/personnelEvaluation/submitSaveEvaluation",
                 json=body2,
-                timeout=15,
+                timeout=_net.service_timeout("tis"),
             )
             self.last_save_result = r2.json()
 

@@ -7,6 +7,7 @@ Uses BB REST API exclusively (no Playwright):
 
 Due dates come as ISO timestamps directly from BB — no regex parsing needed.
 """
+from .. import _net
 
 from sustech_survival.exceptions import SessionExpired as _SessionExpired
 from sustech_survival.sso import BBAuth
@@ -43,7 +44,7 @@ def api(path: str, session=None):
     if session is None:
         session = _session()
     url = "https://bb.sustech.edu.cn" + path
-    r = session.get(url, timeout=15)
+    r = session.get(url, timeout=_net.service_timeout("bb"))
     if r.status_code == 401:
         raise _SessionExpired("BB auth failed (401 after refresh) — credentials may be wrong; diagnose with `sustech sso check`")
     r.raise_for_status()
@@ -61,7 +62,7 @@ def get_uid(session):
     if _uid_cache:
         return _uid_cache
     me = session.get(
-        "https://bb.sustech.edu.cn/learn/api/public/v1/users/me", timeout=10
+        "https://bb.sustech.edu.cn/learn/api/public/v1/users/me", timeout=_net.service_timeout("bb")
     )
     _uid_cache = me.json()["id"]
     return _uid_cache
@@ -91,7 +92,7 @@ def get_courses(session=None, term_id="_57_1"):
         try:
             details = session.get(
                 f"https://bb.sustech.edu.cn/learn/api/public/v1/courses/{cid}",
-                timeout=10,
+                timeout=_net.service_timeout("bb"),
             )
             name = details.json().get("name", "?")
         except Exception:

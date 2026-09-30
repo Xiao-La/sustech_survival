@@ -46,10 +46,49 @@ Start at `docs/en/index.md` (or `docs/zh/index.md`). It maps each module to a pe
 - One logical change per PR.
 - Link the issue or discussion in the description.
 - Tests added or updated for any user-visible change.
-- User-visible changes get a clear commit-message body. Release notes are
-  written to GitHub Releases at tag time (no in-repo `CHANGELOG.md`;
-  see `.gitignore`).
+- User-visible changes get a clear commit-message body and a summary line in
+  the working `CHANGELOG.md` (see [Releasing](#releasing)). Shipped release
+  notes are written to GitHub Releases at tag time.
 - Live tests (`@pytest.mark.live`) are optional — only add them if you can verify against your own SUSTech account.
+
+## Releasing
+
+The version lives in exactly one place — `src/sustech_survival/_version.py`
+(`__version__ = "YYYY.M.D"`, CST; dev builds may use `YYYY.M.D.devHHMM`).
+Hatchling reads it through `[tool.hatch.version]`, so `pip show
+sustech_survival` and `sustech_survival.__version__` always agree.
+
+1. Land the work: `git status -sb` for the working tree and
+   `git log --oneline origin/main..main` for commits that are not pushed yet.
+2. Bump `_version.py` to today's date.
+3. Update the working changelog: turn `## [Unreleased]` in `CHANGELOG.md` into
+   `## [YYYY.M.D]`, group entries by module (`bb` / `tis` / `ehall` / …), and
+   credit anything adopted from another project (`(approach adopted from
+   sustech-cli v0.11.x)`). `CHANGELOG.md` is **gitignored** (`.gitignore` line
+   147) — it is a local working file, not shipped. The published notes are the
+   body of the GitHub Release for the tag.
+4. `git push origin main`
+5. `git tag 2026.9.3 && git push --tags` — tags are the **bare version**, no
+   `v` prefix.
+
+CI (`.github/workflows/deploy.yml`) runs on **any** tag push. The `build` job
+always produces the sdist + wheel; the `pypi` job only runs when the repository
+variable `PUBLISH_TO_PYPI` is exactly `true` (OIDC trusted publishing, no
+token). The documentation site is a separate `docs.yml` workflow.
+
+Install reality (checked 2026-09-20): the package is **not on PyPI**
+(`https://pypi.org/pypi/sustech_survival/json` → 404) and releases carry **no
+assets**, so users install and update straight from git:
+
+```bash
+# install
+pip install "sustech_survival[webui] @ git+https://github.com/dumixthestpd/sustech_survival.git"
+# update (re-installs from the current HEAD of main)
+pip install -U --force-reinstall --no-cache-dir "sustech_survival[webui] @ git+https://github.com/dumixthestpd/sustech_survival.git"
+```
+
+A tag therefore does not reach a user by itself; with `PUBLISH_TO_PYPI` unset,
+tagging only proves that the release builds.
 
 ## Commit messages
 

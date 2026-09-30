@@ -27,6 +27,7 @@ the client transparently re-runs BookingAuth.login_password() and retries
 the call once. Failures propagate as BookingError.
 """
 from __future__ import annotations
+from .. import _net
 
 import uuid
 from datetime import datetime, timedelta
@@ -110,7 +111,7 @@ class BookingClient:
             "MessageID": str(uuid.uuid4()),
             "Data": data,
         }
-        r = self.s.post(f"{self.API_BASE}/{method}", json=body, timeout=15)
+        r = self.s.post(f"{self.API_BASE}/{method}", json=body, timeout=_net.service_timeout("booking"))
 
         if _looks_off_campus(r):
             raise BookingError(OFF_CAMPUS_HINT)

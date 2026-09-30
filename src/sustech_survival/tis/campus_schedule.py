@@ -23,6 +23,7 @@ Params (form data):
 Response: {total: N, pageSize: 500, rwList: {list: [course_items]}}
 """
 
+from .. import _net
 import sys
 from pathlib import Path as _Path
 
@@ -80,7 +81,7 @@ def get_campus_schedule(xn=None, xq=None, page_size=500, page_num=1, full=False,
             params["pageNum"] = str(pg)
             r = auth.post(
                 "/Xsxktz/queryRwxxcxList",
-                data=params, timeout=30,
+                data=params, timeout=_net.service_timeout("tis"),
             )
             r.raise_for_status()
             d = r.json()
@@ -93,7 +94,7 @@ def get_campus_schedule(xn=None, xq=None, page_size=500, page_num=1, full=False,
 
     r = auth.post(
         "/Xsxktz/queryRwxxcxList",
-        data=params, timeout=30,
+        data=params, timeout=_net.service_timeout("tis"),
     )
     r.raise_for_status()
     return r.json()

@@ -1,3 +1,4 @@
+from ... import _net
 # =============================================================================
 # Springer Nature — Cloudscraper + OAuth2/SpringerIdP Authorizer
 # =============================================================================
@@ -38,7 +39,7 @@ class SpringerAuth(Authorizer):
         })
 
     def check(self) -> tuple[bool, str]:
-        r = self.scraper.get(SPRINGER_BASE, timeout=15)
+        r = self.scraper.get(SPRINGER_BASE, timeout=_net.service_timeout("springer"))
         if r.status_code == 200 and len(r.text) > 5000 and "springer" in r.text.lower():
             return True, "Springer accessible via cloudscraper"
         return False, f"Springer returned {r.status_code}"
@@ -66,7 +67,7 @@ class SpringerAuth(Authorizer):
             "q": query,
             "numberOfPages": min(max_results // 20, 10),
         }
-        r = self.scraper.get(f"{SPRINGER_BASE}/search", params=params, timeout=20)
+        r = self.scraper.get(f"{SPRINGER_BASE}/search", params=params, timeout=_net.service_timeout("springer"))
         if r.status_code != 200:
             return {"error": f"HTTP {r.status_code}", "results": []}
         # Parse JSON-API response

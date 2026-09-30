@@ -1,4 +1,5 @@
 """TIS Exam Schedule — Spring 2026 final exams."""
+from .. import _net
 
 from pathlib import Path as _Path
 import requests
@@ -20,7 +21,7 @@ def fetch_exams(auth: TISAuth):
     try:
         r = auth.post(
             "/component/queryKsxxByXs",
-            json={}, timeout=15,
+            json={}, timeout=_net.service_timeout("tis"),
         )
     except requests.RequestException as e:
         raise NetworkError(f"TIS exam endpoint unreachable: {e}")

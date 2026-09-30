@@ -18,6 +18,7 @@ Wire facts verified 2026-09-09 (see sustech-dev records):
   ``~/.sustech_survival/credentials.txt``, first ``sid:password`` line).
 """
 from __future__ import annotations
+from .. import _net
 
 import os
 import re
@@ -159,7 +160,7 @@ class EhallSession:
         # 1) amp gate → CAS login page (request API follows redirects)
         r1 = req.get(
             EHALL_BASE + "/amp-auth-adapter/login?service=" + quote(self.LOGIN_PROBE, safe=""),
-            timeout=45_000,
+            timeout=_net.page_timeout_ms("ehall"),
         )
         m = re.search(r'name=["\']execution["\']\s+value=["\']([^"\']+)["\']', r1.text())
         if not m:
@@ -174,12 +175,12 @@ class EhallSession:
                 "_eventId": "submit",
                 "submit": "登录",
             },
-            timeout=60_000,
+            timeout=_net.page_timeout_ms("ehall"),
         )
         if not r2.ok:
             raise EhallAuthError(f"CAS POST failed: HTTP {r2.status}")
         # 3) bootstrap the app page so EMAP JS establishes the session
-        self._state.page.goto(self.CLE_INDEX, timeout=60_000, wait_until="domcontentloaded")
+        self._state.page.goto(self.CLE_INDEX, timeout=_net.page_timeout_ms("ehall"), wait_until="domcontentloaded")
         self._wait_app_ready()
 
     def _wait_app_ready(self, attempts: int = 6) -> None:
@@ -205,7 +206,7 @@ class EhallSession:
         state = self.ensure()
         url = path_or_url if path_or_url.startswith("http") else EHALL_BASE + path_or_url
         query = dict(params or {})
-        resp = state.context.request.get(url, params=query, headers=self._request_headers(), timeout=60_000)
+        resp = state.context.request.get(url, params=query, headers=self._request_headers(), timeout=_net.page_timeout_ms("ehall"))
         if resp.status != 200:
             raise EhallError(f"GET {url.split('?')[0]} failed: HTTP {resp.status}")
         payload = resp.json()
@@ -220,7 +221,7 @@ class EhallSession:
             url,
             form={str(k): str(v) for k, v in data.items()},
             headers=self._request_headers(),
-            timeout=60_000,
+            timeout=_net.page_timeout_ms("ehall"),
         )
         if resp.status != 200:
             raise EhallError(f"POST {url.split('?')[0]} failed: HTTP {resp.status}")

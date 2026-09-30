@@ -24,8 +24,12 @@ STRUCTURE_FILE = BB_DIR / "structure.json"
 # -- Import BBAuth from authlib ------------------------------------------------
 from sustech_survival.sso import BBAuth
 
-# Module-level singleton
-auth_singleton = BBAuth(skill_dir=str(SKILL_ROOT))
+# Module-level singleton.
+# No skill_dir: credentials resolve through the documented precedence
+# (SUSTECH_CREDENTIALS env var, else ~/.sustech_survival/credentials.txt).
+# Passing a skill_dir made BBAuth look for <repo>/credentials.txt, which the
+# project rule forbids (the module never holds credentials).
+auth_singleton = BBAuth()
 
 # -- Backward-compat stubs -----------------------------------------------------
 # These delegate to auth_singleton. New code should call BBAuth() directly.

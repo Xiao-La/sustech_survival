@@ -1,3 +1,4 @@
+from ... import _net
 # =============================================================================
 # JSTOR — Cloudscraper Authorizer
 # =============================================================================
@@ -36,7 +37,7 @@ class JSTORAuth(Authorizer):
         })
 
     def check(self) -> tuple[bool, str]:
-        r = self.scraper.get(JSTOR_BASE, timeout=15)
+        r = self.scraper.get(JSTOR_BASE, timeout=_net.service_timeout("jstor"))
         if r.status_code == 200 and len(r.text) > 5000:
             if "jstor" in r.text.lower():
                 return True, "JSTOR accessible via cloudscraper"
@@ -70,7 +71,7 @@ class JSTORAuth(Authorizer):
         Search JSTOR. Returns articles matching the query.
         """
         params = {"query": query, "Sort": "relevance"}
-        r = self.scraper.get(JSTOR_SEARCH, params=params, timeout=20)
+        r = self.scraper.get(JSTOR_SEARCH, params=params, timeout=_net.service_timeout("jstor"))
         if r.status_code != 200:
             return {"error": f"HTTP {r.status_code}", "results": []}
 

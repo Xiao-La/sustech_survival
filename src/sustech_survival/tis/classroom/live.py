@@ -43,6 +43,7 @@ Auth: handled by `sustech_survival.sso.TISAuth` (raw CAS login — same
 bypass as the rest of the classroom module).
 """
 from __future__ import annotations
+from ... import _net
 
 import datetime as dt
 import json
@@ -352,7 +353,7 @@ def current_period(time_h: int, time_m: int) -> Optional[int]:
 
 def current_semester(sess: requests.Session) -> Semester:
     """Query TIS for the current academic year + semester. Returns a Semester."""
-    r = sess.post(TIS_DQ_XNXQ_URL, headers={"RoleCode": "00"}, timeout=15)
+    r = sess.post(TIS_DQ_XNXQ_URL, headers={"RoleCode": "00"}, timeout=_net.service_timeout("tis"))
     r.raise_for_status()
     data = r.json()
     content = data.get("content") or {}
@@ -579,7 +580,7 @@ class LiveOccupancyClient:
         sess = self._ensure_session()
         r = sess.post(TIS_QUERY_ROOM_SCHEDULE_URL,
                       data={"cddm": cddm, "xn": xn, "xq": xq},
-                      headers={"RoleCode": "00"}, timeout=30)
+                      headers={"RoleCode": "00"}, timeout=_net.service_timeout("tis"))
         r.raise_for_status()
         raw_list = r.json() or []
         entries: List[RoomScheduleEntry] = []

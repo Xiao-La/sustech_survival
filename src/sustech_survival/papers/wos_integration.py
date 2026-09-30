@@ -1,4 +1,6 @@
 import sys, json, time
+
+from .. import _net
 from pathlib import Path
 sys.path.insert(0, "src")
 # Resolve skill root from this file's location (independent of install path).
@@ -36,27 +38,27 @@ def login_to_wos():
     username, password = _auth.read_creds()
 
     page.goto("https://www.webofscience.com/wos/woscc/summary/basic",
-               wait_until="domcontentloaded", timeout=30000)
+               wait_until="domcontentloaded", timeout=_net.page_timeout_ms("papers"))
     page.wait_for_timeout(8000)
     print(f"[WoS] Global site: {page.url[:60]}")
 
     try:
-        page.get_by_text("Accept all").click(timeout=3000)
+        page.get_by_text("Accept all").click(timeout=_net.page_timeout_ms("papers"))
     except:
         pass
 
-    page.locator('mat-select[aria-label="Institution"]').click(timeout=5000)
+    page.locator('mat-select[aria-label="Institution"]').click(timeout=_net.page_timeout_ms("papers"))
     page.wait_for_timeout(2000)
-    page.get_by_text("CHINA CERNET Federation", exact=True).click(timeout=5000)
+    page.get_by_text("CHINA CERNET Federation", exact=True).click(timeout=_net.page_timeout_ms("papers"))
     page.wait_for_timeout(1000)
-    page.get_by_text("Go to institution").click(timeout=5000)
+    page.get_by_text("Go to institution").click(timeout=_net.page_timeout_ms("papers"))
     print("[WoS] Selected institution")
 
     try:
-        page.wait_for_url("**ds.carsi.edu.cn**", timeout=20000)
+        page.wait_for_url("**ds.carsi.edu.cn**", timeout=_net.page_timeout_ms("papers"))
     except Exception:
         try:
-            page.wait_for_url("**carsi.edu.cn**", timeout=10000)
+            page.wait_for_url("**carsi.edu.cn**", timeout=_net.page_timeout_ms("papers"))
         except Exception:
             print(f"[WoS] ⚠ Not redirected to CARSI: {page.url[:60]}")
 
@@ -75,7 +77,7 @@ def login_to_wos():
     print("[WoS] Injected SUSTech entityID")
 
     try:
-        page.wait_for_url("**cas.sustech.edu.cn**", timeout=30000)
+        page.wait_for_url("**cas.sustech.edu.cn**", timeout=_net.page_timeout_ms("papers"))
     except Exception:
         if "webofknowledge" in page.url or "webofscience" in page.url:
             print("[WoS] → Already authenticated, session active")
@@ -118,7 +120,7 @@ def search_wos(query, max_results=10):
     page.set_default_timeout(30000)
 
     page.goto("https://webofscience.clarivate.cn/wos/woscc/basic-search/basic",
-               wait_until="domcontentloaded", timeout=30000)
+               wait_until="domcontentloaded", timeout=_net.page_timeout_ms("papers"))
     page.wait_for_timeout(8000)
     print(f"[WoS Search] URL: {page.url[:60]}")
 

@@ -1,3 +1,4 @@
+from ... import _net
 # =============================================================================
 # Scopus — Cloudscraper Authorizer
 # =============================================================================
@@ -30,7 +31,7 @@ class ScopusAuth(Authorizer):
         })
 
     def check(self) -> tuple[bool, str]:
-        r = self.scraper.get(SCOPUS_BASE, timeout=15)
+        r = self.scraper.get(SCOPUS_BASE, timeout=_net.service_timeout("scopus"))
         if r.status_code == 200 and len(r.text) > 5000 and "scopus" in r.text.lower():
             return True, "Scopus accessible via cloudscraper"
         return False, f"Scopus returned {r.status_code}"
@@ -47,7 +48,7 @@ class ScopusAuth(Authorizer):
 
     def search(self, query: str, max_results: int = 25) -> dict:
         params = {"term": query, "sort": "relevancy"}
-        r = self.scraper.get(f"{SCOPUS_BASE}/search/scopus", params=params, timeout=20)
+        r = self.scraper.get(f"{SCOPUS_BASE}/search/scopus", params=params, timeout=_net.service_timeout("scopus"))
         return {"results": [], "count": 0, "note": "Scopus HTML search not yet parsed"} if r.status_code == 200 else {"error": f"HTTP {r.status_code}", "results": []}
 
     @property

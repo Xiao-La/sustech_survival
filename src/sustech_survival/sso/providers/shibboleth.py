@@ -1,3 +1,4 @@
+from ... import _net
 # =============================================================================
 # Shibboleth SP Provider — SAML 2.0 via WAYF/DS Discovery
 # =============================================================================
@@ -94,7 +95,7 @@ class ShibbolethAuthorizer(Authorizer):
             page = ctx.new_page()
 
             print(f"[1/4] Navigating to {self.SP_INIT_URL} ...")
-            page.goto(self.SP_INIT_URL, wait_until="domcontentloaded", timeout=30000)
+            page.goto(self.SP_INIT_URL, wait_until="domcontentloaded", timeout=_net.page_timeout_ms("sso"))
 
             # -- Step 2: detect institution login link ------------------------
             link_info = self.find_institution_link(page)
@@ -103,7 +104,7 @@ class ShibbolethAuthorizer(Authorizer):
                 link_info['handle'].click()
             else:
                 print(f"[2/4] No explicit institution link found — trying direct SP init URL")
-                page.goto(self.SP_INIT_URL, wait_until="domcontentloaded", timeout=15000)
+                page.goto(self.SP_INIT_URL, wait_until="domcontentloaded", timeout=_net.page_timeout_ms("sso"))
 
             # -- Step 3: WAYF discovery — search for institution -------------
             page.wait_for_timeout(2000)
@@ -137,7 +138,7 @@ class ShibbolethAuthorizer(Authorizer):
 
             # Wait for ACS redirect to complete
             try:
-                page.wait_for_url(f"**{self.ACS_URL}**", timeout=30)
+                page.wait_for_url(f"**{self.ACS_URL}**", timeout=_net.page_timeout_ms("sso"))
                 print(f"  → ACS URL reached — SAML exchange complete")
             except Exception:
                 pass
@@ -171,7 +172,7 @@ class ShibbolethAuthorizer(Authorizer):
         for tag, text in candidates:
             try:
                 el = page.locator(f"{tag}:has-text('{text}')").first
-                if el.is_visible(timeout=2000):
+                if el.is_visible(timeout=_net.service_timeout("sso")):
                     return {'handle': el, 'text': text}
             except Exception:
                 pass
@@ -179,7 +180,7 @@ class ShibbolethAuthorizer(Authorizer):
         # Broader: any link/button with "institution" in href or text
         try:
             for el in page.locator("a[href*='institution'], a[href*='sso'], a[href*='shibboleth']").all():
-                if el.is_visible(timeout=1000):
+                if el.is_visible(timeout=_net.service_timeout("sso")):
                     return {'handle': el, 'text': el.inner_text()}
         except Exception:
             pass
@@ -226,7 +227,7 @@ class ShibbolethAuthorizer(Authorizer):
         for sel in search_selectors:
             try:
                 inp = page.locator(sel).first
-                if inp.is_visible(timeout=1000):
+                if inp.is_visible(timeout=_net.service_timeout("sso")):
                     search_input = inp
                     break
             except Exception:
@@ -254,7 +255,7 @@ class ShibbolethAuthorizer(Authorizer):
         for sel in select_selectors:
             try:
                 el = page.locator(sel).first
-                if el.is_visible(timeout=2000):
+                if el.is_visible(timeout=_net.service_timeout("sso")):
                     el.click()
                     selected = True
                     print(f"  → Selected institution")
@@ -267,7 +268,7 @@ class ShibbolethAuthorizer(Authorizer):
             search_input.press("Enter")
             page.wait_for_timeout(1500)
             try:
-                page.locator("li, .result, .item").first.click(timeout=3000)
+                page.locator("li, .result, .item").first.click(timeout=_net.page_timeout_ms("sso"))
                 selected = True
             except Exception:
                 pass

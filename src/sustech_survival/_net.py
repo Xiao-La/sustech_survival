@@ -12,22 +12,28 @@ Canonical tree (every leaf optional; missing leaves fall back):
     {
       "timeouts": {
         "http": {
-          "default": 60,     # seconds per request (fallback for all services)
+          "default": 180,    # seconds per request (fallback for all services)
           "attempts": 2      # retries for idempotent (GET) requests
         },
         "login": {
-          "default": 60,     # seconds per login step (CAS ticket dance)
+          "default": 180,    # seconds per login step (CAS ticket dance)
           "attempts": 3      # full login attempts before giving up
         },
+        "page": {
+          "default": 180     # seconds per browser navigation / in-page wait
+        },
         "services": {
-          "tis": { "http": 60, "login": 60 },   # per-service overrides
-          "bb":  { "http": 60 }
+          "tis": { "http": 180, "login": 180 },        # per-service overrides
+          "bb":  { "http": 180, "page": 240 }
         }
       }
     }
 
-Per-service entries may override ``http`` and/or ``login`` seconds; anything
-not listed uses the section defaults.
+Per-service entries may override ``http``, ``login`` and/or ``page`` seconds;
+anything not listed uses the section defaults. ``page`` is expressed in the
+same unit (seconds) and converted to milliseconds for Playwright at the call
+site via :func:`page_timeout_ms` — the tree stays human-editable, no caller
+hardcodes a millisecond literal.
 
 Legacy flat keys from earlier versions are still honored and folded into the
 tree: ``cas_login`` → ``login.default``, ``cas_attempts`` → ``login.attempts``,
@@ -48,10 +54,13 @@ from . import _cache
 # Defaults (when config.json has no "timeouts" section or misses a leaf)
 # ---------------------------------------------------------------------------
 
-HTTP_DEFAULT: float = 60.0
+HTTP_DEFAULT: float = 180.0
 HTTP_ATTEMPTS: int = 2
-LOGIN_DEFAULT: float = 60.0
+LOGIN_DEFAULT: float = 180.0
 LOGIN_ATTEMPTS: int = 2
+# Browser (Playwright) navigation / in-page wait budget, in SECONDS — same
+# unit as the rest of the tree, converted to ms by page_timeout_ms().
+PAGE_DEFAULT: float = 180.0
 
 # Legacy flat keys → tree path (kept so earlier configs keep working).
 _LEGACY_FLAT = {
@@ -74,6 +83,7 @@ class NetworkTimeouts:
 
     http: _Timing = field(default_factory=lambda: _Timing(HTTP_DEFAULT, HTTP_ATTEMPTS))
     login: _Timing = field(default_factory=lambda: _Timing(LOGIN_DEFAULT, LOGIN_ATTEMPTS))
+    page: _Timing = field(default_factory=lambda: _Timing(PAGE_DEFAULT, 1))
     services: Dict[str, Dict[str, float]] = field(default_factory=dict)
 
     # -- resolution ---------------------------------------------------------
@@ -87,6 +97,15 @@ class NetworkTimeouts:
         """Login-step seconds for one service."""
         svc = self.services.get(service) or {}
         return float(svc.get("login", self.login.default))
+
+    def page_timeout(self, service: Optional[str] = None) -> float:
+        """Browser navigation seconds — per-service override, else section default."""
+        svc = self.services.get(service or "") or {}
+        return float(svc.get("page", self.page.default))
+
+    def page_timeout_ms(self, service: Optional[str] = None) -> int:
+        """Same as :meth:`page_timeout` in milliseconds (Playwright's unit)."""
+        return int(self.page_timeout(service) * 1000)
 
     def request_attempts(self) -> int:
         """Retries for idempotent (GET) requests."""
@@ -118,6 +137,7 @@ class NetworkTimeouts:
 
         http = _section("http", HTTP_DEFAULT, HTTP_ATTEMPTS)
         login = _section("login", LOGIN_DEFAULT, LOGIN_ATTEMPTS)
+        page = _section("page", PAGE_DEFAULT, 1)
         services: Dict[str, Dict[str, float]] = {}
 
         svc_raw = raw.get("services")
@@ -156,7 +176,7 @@ class NetworkTimeouts:
                 svc_name, leaf = path[1], path[2]
                 services.setdefault(svc_name, {})[leaf] = value
 
-        return cls(http=http, login=login, services=services)
+        return cls(http=http, login=login, page=page, services=services)
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +218,16 @@ def attempts(name: str = "http") -> int:
     if name in ("login", "cas_attempts"):
         return snap.login_attempts()
     return snap.request_attempts()
+
+
+def page_timeout(service: Optional[str] = None) -> float:
+    """Browser navigation seconds (per-service override, else ``page.default``)."""
+    return timeouts().page_timeout(service)
+
+
+def page_timeout_ms(service: Optional[str] = None) -> int:
+    """Playwright-compatible milliseconds for :func:`page_timeout`."""
+    return timeouts().page_timeout_ms(service)
 
 
 def service_timeout(service: str) -> float:

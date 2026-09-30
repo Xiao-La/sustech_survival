@@ -23,6 +23,7 @@ This class is auth-agnostic — pass it any `requests.Session` that has the
 OSESSIONID cookie set.
 """
 from __future__ import annotations
+from .. import _net
 
 import json
 from dataclasses import asdict, dataclass
@@ -86,7 +87,7 @@ class PMSClient:
         Each group is a logical bucket (e.g. "OPMServer"); stations are
         filtered by `dwDevSN // 1000 == group.dwSN`.
         """
-        r = self.session.get(f"{self.API_BASE}/client/Station/GetSrvList", timeout=10)
+        r = self.session.get(f"{self.API_BASE}/client/Station/GetSrvList", timeout=_net.service_timeout("pms"))
         data = self._unwrap(r)
         return [ServerGroup.from_api(g) for g in (data or [])]
 
@@ -99,7 +100,7 @@ class PMSClient:
         r = self.session.get(
             f"{self.API_BASE}/client/Station/GetList",
             params={"timestamp": "0"},
-            timeout=15,
+            timeout=_net.service_timeout("pms"),
         )
         data = self._unwrap(r) or []
         stations = [Station.from_api(s) for s in data]
@@ -114,7 +115,7 @@ class PMSClient:
         r = self.session.get(
             f"{self.API_BASE}/client/PrintJob/Get",
             params={"timestamp": "0"},
-            timeout=15,
+            timeout=_net.service_timeout("pms"),
         )
         data = self._unwrap(r) or []
         return [PrintJob.from_api(j) for j in data]
@@ -137,7 +138,7 @@ class PMSClient:
             f"{self.API_BASE}/client/PrintJob/Del",
             data=json.dumps({"dwJobId": int(job_id), "dwOldJobId": int(job_id)}),
             headers={"Content-Type": "application/json"},
-            timeout=10,
+            timeout=_net.service_timeout("pms"),
         )
         if _looks_off_campus(r):
             raise PMSError(OFF_CAMPUS_HINT)
@@ -151,7 +152,7 @@ class PMSClient:
         r = self.session.get(
             f"{self.API_BASE}/client/Scan/Get",
             params={"timestamp": "0"},
-            timeout=15,
+            timeout=_net.service_timeout("pms"),
         )
         data = self._unwrap(r) or []
         return [ScanJob.from_api(j) for j in data]
@@ -171,7 +172,7 @@ class PMSClient:
             f"{self.API_BASE}/client/Scan/Del",
             data=json.dumps({"dwJobId": int(job_id)}),
             headers={"Content-Type": "application/json"},
-            timeout=10,
+            timeout=_net.service_timeout("pms"),
         )
         if _looks_off_campus(r):
             raise PMSError(OFF_CAMPUS_HINT)
@@ -216,7 +217,7 @@ class PMSClient:
             f"{self.API_BASE}/client/Report/DetailPage",
             data=json.dumps(body),
             headers={"Content-Type": "application/json"},
-            timeout=15,
+            timeout=_net.service_timeout("pms"),
         )
         if _looks_off_campus(r):
             raise PMSError(OFF_CAMPUS_HINT)
@@ -328,7 +329,7 @@ class PMSClient:
                 f"{self.API_BASE}/client/CloudPrint/Upload",
                 files=files,
                 data=data,
-                timeout=120,
+                timeout=_net.service_timeout("pms"),
             )
 
         # On success the response is a JSON body with code/message. On failure

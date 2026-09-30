@@ -1,3 +1,4 @@
+from .. import _net
 # CrossRef search — query CrossRef API for paper metadata
 
 import requests
@@ -56,7 +57,7 @@ def crossref_search(
         # Without year filter, sort by citations to get most relevant papers
         params["sort"] = "is-referenced-by-count"
 
-    r = requests.get(CROSSREF_BASE, params=params, headers=HEADERS, timeout=20)
+    r = requests.get(CROSSREF_BASE, params=params, headers=HEADERS, timeout=_net.service_timeout("papers"))
     if r.status_code != 200:
         raise RuntimeError(f"CrossRef API error: {r.status_code} — {r.text[:200]}")
 

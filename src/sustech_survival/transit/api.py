@@ -16,6 +16,7 @@ The active skin's transit page is the entry point; this module just
 exposes the data plane behind it.
 """
 from __future__ import annotations
+from .. import _net
 
 import json
 from pathlib import Path
@@ -66,7 +67,7 @@ def register(reg: CollectorRegistry) -> None:
         if "Range" in request.headers:
             headers["Range"] = request.headers["Range"]
         try:
-            r = requests.get(url, headers=headers, timeout=30, stream=True)
+            r = requests.get(url, headers=headers, timeout=_net.service_timeout("transit"), stream=True)
             passthrough = ("Content-Type", "Content-Length", "Content-Range",
                            "Accept-Ranges", "ETag", "Last-Modified")
             resp = Response(r.iter_content(chunk_size=64 * 1024),

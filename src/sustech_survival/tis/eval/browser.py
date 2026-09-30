@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from ... import _net
+
 import json
 from typing import Optional
 
@@ -63,7 +65,7 @@ class TISAuthEval(TISAuth):
             f"{BASE}/personnelEvaluation/listObtainPersonnelEvaluationTasks",
             params={"yhdm": "<sid>", "rwmc": "", "sfyp": "0",
                     "pageNum": "1", "pageSize": "20"},
-            timeout=15,
+            timeout=_net.service_timeout("tis"),
         )
         if tasks_resp.status_code != 200:
             raise RuntimeError(f"Task list API returned {tasks_resp.status_code}")
@@ -99,7 +101,7 @@ class TISAuthEval(TISAuth):
                     "rwid": rwid,       # kept for category context; backend tolerates it
                     "lsjgzt": "",
                 },
-                timeout=15,
+                timeout=_net.service_timeout("tis"),
             )
             data = courses_resp.json()
             if data.get("code") != "200":
@@ -219,13 +221,13 @@ class TISAuthEval(TISAuth):
         page.goto(
             f"{BASE}/studentAssess/studentEvaluationObjectPage"
             f"?yhdm={yhdm}&wjid={target['wjid']}&sfyp=0&xnxq={sem.tis}",
-            wait_until="commit", timeout=30000
+            wait_until="commit", timeout=_net.page_timeout_ms("tis")
         )
         page.wait_for_timeout(7000)  # Vue init + AJAX call takes ~4-5s
 
         # Click 查询 if button present — wait for it to be visible first
         try:
-            page.wait_for_selector("button:has-text('查询')", timeout=8000)
+            page.wait_for_selector("button:has-text('查询')", timeout=_net.page_timeout_ms("tis"))
         except Exception:
             raise RuntimeError("查询 button never appeared — page failed to load")
         qbtn = page.query_selector("button:has-text('查询')")
@@ -365,7 +367,7 @@ class TISAuthEval(TISAuth):
                 page.goto(
                     f"{BASE}/studentAssess/studentEvaluationObjectPage"
                     f"?yhdm={yhdm}&wjid={wjid}&sfyp=0&xnxq={sem.tis}",
-                    wait_until="commit", timeout=30000,
+                    wait_until="commit", timeout=_net.page_timeout_ms("tis"),
                 )
                 page.wait_for_timeout(7000)  # Vue init + AJAX takes ~4-5s
 
@@ -529,12 +531,12 @@ class TISAuthEval(TISAuth):
                 page.goto(
                     f"{BASE}/studentAssess/studentEvaluationObjectPage"
                     f"?yhdm={yhdm}&wjid={wjid}&sfyp=0&xnxq={sem.tis}",
-                    wait_until="commit", timeout=30000,
+                    wait_until="commit", timeout=_net.page_timeout_ms("tis"),
                 )
                 page.wait_for_timeout(7000)  # Vue init + AJAX call takes ~4-5s
 
                 try:
-                    page.wait_for_selector("button:has-text('查询')", timeout=8000)
+                    page.wait_for_selector("button:has-text('查询')", timeout=_net.page_timeout_ms("tis"))
                 except Exception:
                     raise RuntimeError(f"查询 button not found for {kcmc} — page failed to load")
                 qbtn = page.query_selector("button:has-text('查询')")
@@ -678,7 +680,7 @@ class TISAuthEval(TISAuth):
                 f"{BASE}/studentAssess/studentEvaluationObjectPage"
                 f"?yhdm={yhdm}&wjid={wjid}&sfyp=0&xnxq={xnxq}"
             )
-            page.goto(search_url, wait_until="commit", timeout=30000)
+            page.goto(search_url, wait_until="commit", timeout=_net.page_timeout_ms("tis"))
             page.wait_for_timeout(6000)
 
             # Inject the course data into Vue's datas array

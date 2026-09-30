@@ -8,6 +8,7 @@
 #   GET /StudentExchange_2247/ProjectDetail2247.do   ← HTML detail page
 # -----------------------------------------------------------------------------
 from __future__ import annotations
+from .. import _net
 
 import html
 import json
@@ -51,7 +52,7 @@ def user_token() -> tuple[str, str]:
         return _token_cache
     s = session()
     menu = json.loads(
-        s.get(f"{WS_BASE}/Main/GetSmartLeftMenuTData.do", timeout=10).text
+        s.get(f"{WS_BASE}/Main/GetSmartLeftMenuTData.do", timeout=_net.service_timeout("ws")).text
     )
     sample = menu[0]["FunctionList"][0]["Pages"][0]["PageUrl"]
     m = re.search(r"userToken=([A-F0-9]+)", sample)
@@ -161,7 +162,7 @@ def list_programs(
     r = s.get(
         f"{WS_BASE}/StudentExchange_2247/GetShortProjectListForStudent.do",
         params=params,
-        timeout=15,
+        timeout=_net.service_timeout("ws"),
     )
     raw = json.loads(r.text)
 
@@ -223,7 +224,7 @@ def get_count(
     r = s.get(
         f"{WS_BASE}/StudentExchange_2247/GetShortProjectListCountForStudent.do",
         params=params,
-        timeout=10,
+        timeout=_net.service_timeout("ws"),
     )
     try:
         data = json.loads(r.text)
@@ -266,7 +267,7 @@ def get_program_detail(
                 "ts": ts,
                 "userToken": tok,
             }
-            raw = json.loads(s.get(list_url, params=params, timeout=10).text)
+            raw = json.loads(s.get(list_url, params=params, timeout=_net.service_timeout("ws")).text)
             for item in raw.get("DataList", []):
                 if str(item["ID"]) == str(id):
                     found_code = item.get("Code")
@@ -288,7 +289,7 @@ def get_program_detail(
     r = s.get(
         f"{WS_BASE}/StudentExchange_2247/ProjectDetail2247.do",
         params=params,
-        timeout=10,
+        timeout=_net.service_timeout("ws"),
     )
     if r.status_code != 200 or len(r.text) < 500 or "非授权访问" in r.text:
         return None
@@ -308,7 +309,7 @@ def get_program_detail(
                     "ts": ts2,
                     "userToken": user_token2,
                 }
-                raw = json.loads(s2.get(list_url, params=params, timeout=10).text)
+                raw = json.loads(s2.get(list_url, params=params, timeout=_net.service_timeout("ws")).text)
                 for item in raw.get("DataList", []):
                     if str(item.get("ID")) == str(id):
                         fallback_code = item.get("Code")
@@ -321,7 +322,7 @@ def get_program_detail(
             r2 = s2.get(
                 f"{WS_BASE}/StudentExchange_2247/ProjectDetail2247.do",
                 params={"ID": id, "Code": fallback_code, "token": fallback_token, "ts": ts2},
-                timeout=10,
+                timeout=_net.service_timeout("ws"),
             )
             if r2.status_code == 200 and "非授权访问" not in r2.text:
                 result = parse_detail_html(r2.text)

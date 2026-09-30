@@ -30,6 +30,7 @@ All mirror endpoints are unauthenticated; no TIS/CAS session is needed
 for any of these. Use TIS as a fallback when mirror data is missing.
 """
 from __future__ import annotations
+from .. import _net
 
 import sys
 from typing import Optional
@@ -345,7 +346,7 @@ def program_years():
     for c in candidates:
         url = f"{_syllabus.MIRROR_BASE}{PROGRAM_PREFIX}/{c}"
         try:
-            r = _syllabus._session().head(url, allow_redirects=True, timeout=10)
+            r = _syllabus._session().head(url, allow_redirects=True, timeout=_net.service_timeout("mirror"))
             if r.status_code == 200:
                 found.append(c.rstrip("/"))
         except Exception:  # noqa: BLE001
@@ -377,7 +378,7 @@ def program_get(year, out_dir, overwrite):
         return
     url = f"{_syllabus.MIRROR_BASE}{PROGRAM_PREFIX}/{year}本科人才培养方案.pdf"
     try:
-        r = _syllabus._session().get(url, allow_redirects=True, timeout=20)
+        r = _syllabus._session().get(url, allow_redirects=True, timeout=_net.service_timeout("mirror"))
     except Exception as e:  # noqa: BLE001
         click.secho(f"  ❌ fetch error: {e}", fg="red")
         sys.exit(1)
@@ -428,7 +429,7 @@ def handbook_get(kind, out_dir, overwrite):
         return
     url = f"{_syllabus.MIRROR_BASE}{known[kind]}"
     try:
-        r = _syllabus._session().get(url, allow_redirects=True, timeout=20)
+        r = _syllabus._session().get(url, allow_redirects=True, timeout=_net.service_timeout("mirror"))
     except Exception as e:  # noqa: BLE001
         click.secho(f"  ❌ fetch error: {e}", fg="red")
         sys.exit(1)
@@ -463,7 +464,7 @@ def map_get(out_dir, overwrite):
     candidates = []
     index_url = f"{_syllabus.MIRROR_BASE}/site/sustech-online/documents/campus-map/"
     try:
-        r = _syllabus._session().get(index_url, timeout=10)
+        r = _syllabus._session().get(index_url, timeout=_net.service_timeout("mirror"))
         if r.status_code == 200:
             import re
             for m in re.finditer(r'href="([^"]+\.pdf)"', r.text):
@@ -477,7 +478,7 @@ def map_get(out_dir, overwrite):
     for path in candidates:
         url = f"{_syllabus.MIRROR_BASE}/{path}"
         try:
-            r = _syllabus._session().get(url, allow_redirects=True, timeout=20)
+            r = _syllabus._session().get(url, allow_redirects=True, timeout=_net.service_timeout("mirror"))
             if r.status_code == 200:
                 target.write_bytes(r.content)
                 click.secho(f"  ✅ {target} ({len(r.content):,} bytes from {path})", fg="green")
@@ -544,7 +545,7 @@ def mirror_list(subpath):
     """
     url = f"{_syllabus.MIRROR_BASE}/{subpath.strip('/')}/"
     try:
-        r = _syllabus._session().get(url, timeout=10)
+        r = _syllabus._session().get(url, timeout=_net.service_timeout("mirror"))
     except Exception as e:  # noqa: BLE001
         click.secho(f"  ❌ fetch error: {e}", fg="red")
         sys.exit(1)

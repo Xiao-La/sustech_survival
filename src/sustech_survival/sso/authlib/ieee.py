@@ -1,3 +1,4 @@
+from ... import _net
 # =============================================================================
 # IEEE Xplore — Cloudscraper Authorizer
 # =============================================================================
@@ -42,7 +43,7 @@ class IEEEAuth(Authorizer):
         })
 
     def check(self) -> tuple[bool, str]:
-        r = self.scraper.get(IEEE_BASE, timeout=15)
+        r = self.scraper.get(IEEE_BASE, timeout=_net.service_timeout("ieee"))
         if r.status_code == 200 and len(r.text) > 5000:
             return True, "IEEE Xplore accessible via cloudscraper"
         return False, f"IEEE returned {r.status_code}"
@@ -76,7 +77,7 @@ class IEEEAuth(Authorizer):
             "rowsPerPage": str(min(max_results, 100)),
             "pageNumber": "1",
         }
-        r = self.scraper.get(IEEE_SEARCH, params=params, timeout=20)
+        r = self.scraper.get(IEEE_SEARCH, params=params, timeout=_net.service_timeout("ieee"))
         if r.status_code != 200:
             return {"error": f"HTTP {r.status_code}", "results": []}
 
@@ -101,7 +102,7 @@ class IEEEAuth(Authorizer):
     def fetch_pdf(self, article_id: str, output_path: str) -> bool:
         """Download an article PDF by IEEE article ID."""
         pdf_url = f"{IEEE_BASE}/stampPDF/getPDF?arnumber={article_id}"
-        r = self.scraper.get(pdf_url, timeout=30, stream=True)
+        r = self.scraper.get(pdf_url, timeout=_net.service_timeout("ieee"), stream=True)
         if r.status_code != 200:
             return False
         Path(output_path).write_bytes(r.content)

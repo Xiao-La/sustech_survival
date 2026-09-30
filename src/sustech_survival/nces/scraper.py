@@ -23,6 +23,7 @@ Domain decisions owned here (not in webui):
   - score → label: 0-33 / 34-66 / 67-100 thresholds (higher = better)
 """
 from __future__ import annotations
+from .. import _net
 
 import re
 import time
@@ -220,7 +221,7 @@ class NCESScraper:
         endpoints — no walking required.
         """
         self._throttle()
-        r = self.session.get(f"{self.BASE}/api/v1/course/{nces_id}", timeout=15)
+        r = self.session.get(f"{self.BASE}/api/v1/course/{nces_id}", timeout=_net.service_timeout("nces"))
         if r.status_code == 404:
             return None
         r.raise_for_status()
@@ -229,7 +230,7 @@ class NCESScraper:
         rate = c.get("rate") or {}
 
         self._throttle()
-        r2 = self.session.get(f"{self.BASE}/api/v1/course/{nces_id}/reviews", timeout=15)
+        r2 = self.session.get(f"{self.BASE}/api/v1/course/{nces_id}/reviews", timeout=_net.service_timeout("nces"))
         reviews_raw = []
         if r2.status_code == 200:
             reviews_raw = r2.json().get("items", []) or []
@@ -293,7 +294,7 @@ class NCESScraper:
         r = self.session.get(
             f"{self.BASE}/api/v1/course",
             params={"page": page, "per_page": per_page},
-            timeout=15,
+            timeout=_net.service_timeout("nces"),
         )
         r.raise_for_status()
         return r.json()
@@ -302,11 +303,11 @@ class NCESScraper:
     def _api_search(self, code: str) -> dict:
         """GET /api/v1/search?q=<code> → {courses, reviews} JSON."""
         self._throttle()
-        r = self.session.get(self.API_SEARCH, params={"q": code}, timeout=15)
+        r = self.session.get(self.API_SEARCH, params={"q": code}, timeout=_net.service_timeout("nces"))
         if r.status_code == 429:
             self._on_429()
             self._throttle()
-            r = self.session.get(self.API_SEARCH, params={"q": code}, timeout=15)
+            r = self.session.get(self.API_SEARCH, params={"q": code}, timeout=_net.service_timeout("nces"))
         r.raise_for_status()
         return r.json()
 
@@ -580,7 +581,7 @@ class NCESScraper:
             self._throttle()
             rr = self.session.get(
                 f"{self.BASE}/api/v1/course/{target_id}/reviews",
-                timeout=15,
+                timeout=_net.service_timeout("nces"),
             )
             rr.raise_for_status()
             reviews_raw = rr.json().get("items", []) or []

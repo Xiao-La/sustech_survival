@@ -13,6 +13,7 @@ Flags:
     --max N           Max schedules to show (default: 100)
     --json            Output as JSON
 """
+from .. import _net
 
 import sys, re, json, argparse
 from pathlib import Path as _Path
@@ -152,7 +153,7 @@ def fetch_sections(codes: list[str], auth, xn: str, xq: str) -> dict[str, list[d
                 "p_gjz": code,
                 "pageNum": 1, "pageSize": 500,
             },
-            timeout=15
+            timeout=_net.service_timeout("tis")
         )
         # Use pkjgmx_en (English) for clean parsing
         raw_list = r.json().get("rwList", {}).get("list", [])

@@ -1,3 +1,4 @@
+from ... import _net
 # =============================================================================
 # PubMed / NCBI — Direct API Authorizer
 # =============================================================================
@@ -83,7 +84,7 @@ class PubMedAuth(Authorizer):
             params["api_key"] = self.api_key
 
         url = f"{ENTREZ_EUTILS}/esearch.fcgi?{urlencode(params)}"
-        r = self.http.get(url, timeout=15)
+        r = self.http.get(url, timeout=_net.service_timeout("pubmed"))
         r.raise_for_status()
         data = r.json()
 
@@ -117,7 +118,7 @@ class PubMedAuth(Authorizer):
             params["api_key"] = self.api_key
 
         url = f"{ENTREZ_EUTILS}/efetch.fcgi?{urlencode(params)}"
-        r = self.http.get(url, timeout=30)
+        r = self.http.get(url, timeout=_net.service_timeout("pubmed"))
         r.raise_for_status()
 
         return self.parse_abstracts_xml(r.text)

@@ -13,6 +13,7 @@ Usage:
 Credentials: credentials.txt (format: sid:password)
 Session: in-memory only, not persisted to disk.
 """
+from .. import _net
 import sys
 import unicodedata
 from pathlib import Path
@@ -346,7 +347,7 @@ def evals_cmd(pending):
         "/personnelEvaluation/listObtainPersonnelEvaluationTasks",
         params={"yhdm": auth.username, "rwmc": "", "sfyp": "0",
                 "pageNum": "1", "pageSize": "20"},
-        timeout=15,
+        timeout=_net.service_timeout("tis"),
     )
     if r.status_code == 401:
         click.secho("❌  TIS rejected the session (expired). Re-run the command - "
@@ -382,7 +383,7 @@ def evals_cmd(pending):
                     "zc": "", "xqj": "", "jc": "", "skdd": "", "kkyxdm": "",
                     "bpssyxdm": "", "kcmc": "", "sfcxqbwj": "0",
                     "rwid": rwid, "lsjgzt": ""},
-            timeout=15,
+            timeout=_net.service_timeout("tis"),
         )
         if cr.status_code != 200:
             continue
@@ -451,9 +452,9 @@ def query_cmd(path, params, method):
         click.echo(f"   params: {param_dict}")
 
     if method == "GET":
-        r = auth.get(path, params=param_dict, timeout=15)
+        r = auth.get(path, params=param_dict, timeout=_net.service_timeout("tis"))
     else:
-        r = auth.post(path, json=param_dict, timeout=15)
+        r = auth.post(path, json=param_dict, timeout=_net.service_timeout("tis"))
 
     click.secho(f"← {r.status_code}", fg="cyan")
     try:

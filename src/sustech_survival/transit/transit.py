@@ -19,6 +19,7 @@ Schema classes (`Facility`, `BusLine`, `BusSubRoute`, `BusSchedule`,
 `LiveBus`, `Path`, `PathStep`) live in `schema.py` with classmethod parsers.
 """
 from __future__ import annotations
+from .. import _net
 
 import heapq
 import json
@@ -67,12 +68,12 @@ class TransitClient:
 
     def list_buildings(self) -> List[Facility]:
         """Fetch all buildings from sustech.online (bus.sustcra.com/geojson)."""
-        r = self.session.get(f"{LIVE_API}/geojson/sustech_bldg.json", timeout=15)
+        r = self.session.get(f"{LIVE_API}/geojson/sustech_bldg.json", timeout=_net.service_timeout("transit"))
         r.raise_for_status()
         return [Facility.from_bldg(f) for f in r.json().get("features", [])]
 
     def list_gates(self) -> List[Facility]:
-        r = self.session.get(f"{LIVE_API}/geojson/sustech_gate.json", timeout=15)
+        r = self.session.get(f"{LIVE_API}/geojson/sustech_gate.json", timeout=_net.service_timeout("transit"))
         r.raise_for_status()
         return [Facility.from_gate(f) for f in r.json().get("features", [])]
 
@@ -136,7 +137,7 @@ class TransitClient:
         """Fetch bus config for a day type. workday or holiday."""
         if day_type not in (DAY_WORKDAY, DAY_HOLIDAY):
             raise ValueError(f"day_type must be workday or holiday, got {day_type!r}")
-        r = self.session.get(f"{SCHEDULE_BASE}/bus_config.json", timeout=15)
+        r = self.session.get(f"{SCHEDULE_BASE}/bus_config.json", timeout=_net.service_timeout("transit"))
         r.raise_for_status()
         data = r.json().get(day_type, [])
         lines = []
@@ -176,7 +177,7 @@ class TransitClient:
         if not url.startswith("http"):
             url = f"{SCHEDULE_BASE}{url}"
 
-        r = self.session.get(url, timeout=15)
+        r = self.session.get(url, timeout=_net.service_timeout("transit"))
         r.raise_for_status()
         data = r.json()
 
@@ -195,7 +196,7 @@ class TransitClient:
 
     def _line_codes(self) -> List[str]:
         """Available route codes (XYBS1, XYBS2)."""
-        r = self.session.get(f"{LIVE_API}/api/v3/avail_route", timeout=10)
+        r = self.session.get(f"{LIVE_API}/api/v3/avail_route", timeout=_net.service_timeout("transit"))
         r.raise_for_status()
         seen = []
         for entry in r.json().get("routes", []):
@@ -213,7 +214,7 @@ class TransitClient:
 
     def _bus_stops_for(self, line_code: str, direction: int) -> List[Facility]:
         r = self.session.get(
-            f"{LIVE_API}/api/v3/{line_code}/{direction}/stations", timeout=15
+            f"{LIVE_API}/api/v3/{line_code}/{direction}/stations", timeout=_net.service_timeout("transit")
         )
         r.raise_for_status()
         return [
@@ -234,7 +235,7 @@ class TransitClient:
         ]
         for url in candidates:
             try:
-                r = self.session.get(url, timeout=10)
+                r = self.session.get(url, timeout=_net.service_timeout("transit"))
                 if r.status_code == 200:
                     return r.json()
             except requests.RequestException:
@@ -257,7 +258,7 @@ class TransitClient:
             urls.append(f"{LIVE_API}/api/v2/monitor_sev_osm/")
         for url in urls:
             try:
-                r = self.session.get(url, timeout=10)
+                r = self.session.get(url, timeout=_net.service_timeout("transit"))
                 r.raise_for_status()
                 for raw in r.json():
                     out.append(LiveBus.from_api(raw))
@@ -462,7 +463,7 @@ class TransitClient:
                 batch = points[i:i + 100]
                 locations = [{"latitude": lat, "longitude": lng}
                              for lat, lng in batch]
-                r = self.session.post(url, json={"locations": locations}, timeout=30)
+                r = self.session.post(url, json={"locations": locations}, timeout=_net.service_timeout("transit"))
                 r.raise_for_status()
                 for result in r.json().get("results", []):
                     key = f"{round(result['latitude'], 5)},{round(result['longitude'], 5)}"
@@ -502,7 +503,7 @@ class TransitClient:
                 "https://overpass-api.de/api/interpreter",
                 data={"data": q},
                 headers={"Accept": "application/json", "User-Agent": "sustech_survival/1.0"},
-                timeout=60,
+                timeout=_net.service_timeout("transit"),
             )
             r.raise_for_status()
         except requests.RequestException as e:

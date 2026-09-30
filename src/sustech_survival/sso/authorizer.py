@@ -583,7 +583,7 @@ class Authorizer(ABC):
             browser = p.chromium.launch(headless=headless)
             ctx = browser.new_context()
             page = ctx.new_page()
-            page.goto(self._cas_url, wait_until="domcontentloaded", timeout=30000)
+            page.goto(self._cas_url, wait_until="domcontentloaded", timeout=_net.page_timeout_ms("sso"))
             page.wait_for_timeout(1000)
 
             captcha = page.query_selector('[id*="captcha"], .g-recaptcha, [src*="captcha"]')

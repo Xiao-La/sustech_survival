@@ -8,6 +8,6 @@ data-plane calls run through the browser context's request API.
 
 Submodules (nesting per iron law #6/#30):
 - ``cle`` — Center for Language Education (语言中心语言指导服务)
-- ``leave`` — student leave requests (请假)  [endpoint capture pending]
+- ``loa`` — Leave of Absence, student leave requests (请假)  [endpoint capture pending]
 """
 from . import cle  # noqa: F401

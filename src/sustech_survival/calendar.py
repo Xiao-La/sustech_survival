@@ -20,6 +20,7 @@ The legacy TIS-code ``Semester`` class in ``sustech_survival.semester`` is
 imported privately for the TIS-code translation API ("2025-20262" etc).
 """
 from __future__ import annotations
+from . import _net
 
 import json
 import os
@@ -988,7 +989,7 @@ def _decode_and_cache(
 
 def _fetch_json(url: str) -> dict:
     try:
-        with urllib.request.urlopen(url, timeout=15) as resp:
+        with urllib.request.urlopen(url, timeout=_net.service_timeout("http")) as resp:
             data = resp.read()
     except urllib.error.HTTPError as e:
         if e.code == 404:

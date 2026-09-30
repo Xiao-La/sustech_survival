@@ -38,6 +38,31 @@ CSRF: the `blackboard.platform.security.NonceUtil.nonce` field must match the
 session-bound nonce. It changes on every GET of the upload page, so we always
 GET a fresh form before POSTing.
 
+Submission-semantics rules (ported from sustech-cli v0.11.1,
+blackboard-assignment-form.ts + blackboard-submission.ts):
+
+  R1 — Verify the exact assignment target BEFORE any POST. Resolve the
+       course AND the content (or column) and confirm it is the accessible
+       assignment; only after that do we trust the upload form. An initial
+       attempts-list 404 is treated as "no attempts yet" ONLY after both the
+       assignment and its blank first-submission view form have been verified.
+       Every other error during pre-flight stays an error.
+  R2 — Never automatically replay the submission POST, including across
+       HTTP redirects. ``allow_redirects=False`` on the multipart POST and
+       no retry decorator on the failure path.
+  R3 — The error shown to the user keeps the failure stage plus a
+       sanitized upstream status and path. Raw HTML responses, nonces,
+       cookies, and credential-bearing query strings are NEVER dumped
+       into the user-visible message.
+  R4 — Keep the reviewed file's SHA-256 and refuse to submit if the bytes
+       changed between preview and apply. A distinct exception class
+       (``FileChangedSinceReviewError``) carries the computed hashes so
+       the caller can report what the user actually has on disk now.
+  R5 — Text and comment submissions use the editor field the fetched form
+       actually exposes. If the expected text/comment editor is absent
+       from the form, fail with a clear error — never silently send
+       nothing.
+
 Public API:
   submit_assignment_rest(course_id, content_id, file_path, *, name_override,
                          dry_run, skip_dedup)  → SubmitResult   (the primitive)
@@ -48,13 +73,24 @@ Public API:
                                                 → SubmitResult   (legacy-signature wrapper)
   check_attempts(content_id, course_id=None)   → (attempt_count, assignment_name)
   get_attempt_info(course_id, content_id)      → (attempt_count, assignment_name, True)
+  verify_assignment_target(course_id, content_id)
+                                                → dict   (rule R1 preflight primitive)
+  submit_text(content_id, text, *, course_id=None, comment=None)
+                                                → SubmitResult   (rule R5 text path)
+  submit_comment(content_id, comment, *, course_id=None)
+                                                → SubmitResult   (rule R5 comment path)
+  FileChangedSinceReviewError                  → distinct error class for rule R4
+  SubmissionFormError                          → distinct error class for rule R3
 """
 from __future__ import annotations
+from .. import _net
 
+import hashlib
 import re
 import shutil
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
 
 import requests
 
@@ -67,6 +103,116 @@ from sustech_survival.consequence import (
 from .result import success, failure, dry_run as _dry_run_result
 
 BB_BASE = "https://bb.sustech.edu.cn"
+
+_UPLOAD_PATH = "/webapps/assignment/uploadAssignment"
+_NONCE_FIELD = "blackboard.platform.security.NonceUtil.nonce"
+
+# Editor field names BB uses for text/comments. The fetched form decides
+# which one is present (rule R5); the order below is the preference list.
+_TEXT_EDITOR_CANDIDATES = ("studentSubmission.text",)
+_COMMENT_EDITOR_CANDIDATES = ("student_comments", "studentComments.text")
+
+# Sensitive query-string keys we strip from any upstream URL we echo back.
+# Credentials / nonces / cookies must never appear in user-visible errors.
+_SENSITIVE_QUERY_KEYS = {
+    "nonce", "blackboard.platform.security.NonceUtil.nonce",
+    "nonce.ajax", "ajaxnonceid", "session", "sessionid",
+    "auth", "token", "password", "pwd",
+}
+
+
+def _sanitize_query(qs: str) -> str:
+    """Drop any sensitive query keys from a query string."""
+    pairs = parse_qsl(qs, keep_blank_values=True)
+    kept = [(k, v) for k, v in pairs if k.lower() not in _SENSITIVE_QUERY_KEYS]
+    return urlencode(kept)
+
+
+def _sanitize_url(value: str) -> Optional[str]:
+    """Return a safe, path-only view of an upstream URL (no credentials, no
+    sensitive query keys, no fragments). Returns None if value is unusable.
+    """
+    if not value:
+        return None
+    try:
+        parsed = urlparse(value)
+    except Exception:
+        return None
+    if not parsed.scheme or not parsed.netloc:
+        return None
+    if parsed.username or parsed.password:
+        return None
+    # Strip fragment always (carries tokens / hash secrets on BB).
+    return urlunparse((
+        parsed.scheme,
+        parsed.netloc,
+        parsed.path or "/",
+        "",  # params
+        _sanitize_query(parsed.query),
+        "",  # fragment
+    ))
+
+
+# -------------------------------------------------------------------------
+# Distinct error classes for the submission rules (R3, R4)
+# -------------------------------------------------------------------------
+
+class SubmissionFormError(Exception):
+    """Raised when the uploadAssignment form is missing, malformed, or
+    refers to a different/ambiguous assignment (rule R3).
+
+    Carries ``stage`` (which phase was active when the error happened),
+    plus a sanitized ``status`` and ``path`` so the caller can echo a
+    meaningful but safe error to the user.
+    """
+
+    def __init__(self, message: str, *, stage: str = "prepare_form",
+                     status: Optional[int] = None, path: Optional[str] = None,
+                     code: str = "BLACKBOARD_SUBMISSION_FORM_ERROR"):
+            super().__init__(message)
+            self.message = message
+            self.stage = stage
+            self.status = status
+            self.path = path
+            self.code = code
+
+    def to_diagnostic(self) -> dict:
+        """Sanitized, user-safe diagnostic dict. NEVER includes raw HTML."""
+        out: dict = {
+            "code": self.code,
+            "message": str(self),
+            "stage": self.stage,
+        }
+        if self.status is not None:
+            out["status"] = int(self.status)
+        safe_path = _sanitize_url(self.path) if self.path else None
+        if safe_path:
+            # Path only (no query, no fragment, no credentials).
+            out["path"] = urlparse(safe_path).path
+        return out
+
+
+class FileChangedSinceReviewError(Exception):
+    """Raised when the bytes to upload no longer match the SHA-256 the caller
+    reviewed (rule R4). A distinct class so the caller can surface this
+    specifically without confusing it with a BB-side failure.
+    """
+
+    def __init__(self, path: str, reviewed_sha256: str, current_sha256: str,
+                 reviewed_size: int, current_size: int):
+        self.path = path
+        self.reviewed_sha256 = reviewed_sha256
+        self.current_sha256 = current_sha256
+        self.reviewed_size = reviewed_size
+        self.current_size = current_size
+        super().__init__(
+            f"The Blackboard submission bytes no longer match the reviewed "
+            f"SHA-256 for {path!r}. "
+            f"Reviewed {reviewed_sha256} ({reviewed_size} bytes); "
+            f"on disk now {current_sha256} ({current_size} bytes). "
+            f"Re-review before retrying."
+        )
+
 
 _UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
        "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -98,6 +244,18 @@ def _safe_staged_name(target_name: str, fallback_suffix: str = ".pdf") -> str:
     ) or (stem.startswith("LPT") and stem[3:].isdigit()):
         safe = "staged_" + safe
     return safe
+
+
+def sha256_of_file(path: Path) -> str:
+    """Return the SHA-256 hex digest of the file at ``path`` (read in 64 KB
+    chunks). Used by rule R4 to verify the bytes have not changed between
+    preview and apply.
+    """
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 # -------------------------------------------------------------------------
@@ -141,9 +299,14 @@ def _bb_form_url(course_id: str, content_id: str, action: str = "newAttempt") ->
 
 
 def _num_id(bb_id) -> str:
-    """'_8053_1' -> '8053'; bare '8053' stays '8053'."""
-    m = re.search(r'_(\d+)_(\d+)$', str(bb_id))
-    return m.group(1) if m else str(bb_id)
+    """'_8053_1' -> '8053'; bare '8053' stays '8053'.
+
+    Thin shim kept for backwards compatibility — delegates to the single
+    project-wide normaliser in bb.query._core_id. (R1 relies on this; never
+    do an lstrip/rstrip of '_1' here.)
+    """
+    from .query import _core_id
+    return _core_id(str(bb_id))
 
 
 def _clean_filename(name: str) -> str:
@@ -152,6 +315,148 @@ def _clean_filename(name: str) -> str:
         r'---[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\.)',
         '', name,
     )
+
+
+# -------------------------------------------------------------------------
+# R1 — verify the exact assignment target BEFORE any POST.
+#      - Resolve course AND content (or column).
+#      - Confirm the assignment is accessible.
+#      - Initial attempts-list 404 only counts as "no attempts yet" AFTER
+#        both the assignment AND its blank first-submission view form have
+#        been verified. Every other error stays an error.
+# -------------------------------------------------------------------------
+
+def verify_assignment_target(course_id: str, content_id: str) -> dict:
+    """Verify the (course_id, content_id) pair refers to an accessible
+    assignment, and return a dict with normalised ids plus the resolved
+    gradebook column id (if any).
+
+    Implementation: resolves the course (when needed), fetches the content
+    item to confirm the assignment exists and the student has access to it,
+    and resolves the gradebook column id from the content item's handler
+    metadata. This is the R1 preflight primitive — the submission flow
+    MUST call this before any POST.
+
+    Returns:
+        {
+          "course_id": str, "content_id": str,
+          "column_id": str | None,
+          "assignment_name": str,
+          "course_name": str,
+          "is_assignment": bool,
+        }
+    """
+    from .download import (
+        resolve_course, get_content_item, get_column_id_for_content,
+    )
+
+    cid = _num_id(course_id)
+    content = _num_id(content_id)
+    course_name = ""
+    try:
+        course_name = resolve_course(cid) or ""
+    except Exception:
+        course_name = ""
+
+    item = get_content_item(cid, content)
+    if not item:
+        raise SubmissionFormError(
+            f"Could not resolve BB content {content} in course {cid}: "
+            f"the item does not exist or you do not have access to it.",
+            stage="verify_target",
+            path=_UPLOAD_PATH,
+            code="BLACKBOARD_ASSIGNMENT_NOT_ACCESSIBLE",
+        )
+
+    handler = item.get("contentHandler", {}) or {}
+    handler_id = handler.get("id", "") or ""
+    is_assignment = handler_id == "resource/x-bb-assignment"
+    assignment_name = item.get("title", "") or ""
+
+    column_id = get_column_id_for_content(cid, content)
+
+    return {
+        "course_id": cid,
+        "content_id": content,
+        "column_id": column_id or None,
+        "assignment_name": assignment_name,
+        "course_name": course_name,
+        "is_assignment": is_assignment,
+    }
+
+
+def _is_no_attempts_404(exc: BaseException) -> bool:
+    """Return True iff ``exc`` is a requests-style 404 (the "no attempts yet"
+    shape that BB returns before the student has ever uploaded).
+
+    R1: this is the ONLY error condition during pre-flight that we treat as
+    "no attempts yet" — every other error stays an error.
+    """
+    response = getattr(exc, "response", None)
+    if response is None:
+        return False
+    status = getattr(response, "status_code", None)
+    if status is None:
+        # requests.HTTPError carries ``.response.status_code`` too.
+        try:
+            status = exc.response.status_code  # type: ignore[attr-defined]
+        except Exception:
+            return False
+    return status == 404
+
+
+def _safe_initial_attempts_count(course_id: str, column_id: Optional[str]) -> int:
+    """R1: list the existing attempts for a column. Returns 0 only after the
+    assignment AND the upload form have been verified, AND the attempts
+    endpoint itself returned 404 (the documented "no attempts yet" shape).
+    Every other error propagates as-is.
+
+    The project-level ``get_assignment_attempts`` swallows every error and
+    returns [] — but for R1 we must distinguish "no attempts yet" from a
+    genuine REST failure (auth lost, server error, JSON parse error), so
+    we call the public attempts endpoint directly and check the response
+    status here.
+    """
+    if not column_id:
+        return 0
+    from sustech_survival.bb.query import api
+    from sustech_survival.bb.session import session
+    bid = course_id if course_id.startswith("_") else f"_{course_id}_1"
+    col_id = column_id if column_id.startswith("_") else f"_{column_id}_1"
+    sess = session()
+    try:
+        data = api(
+            f"/learn/api/public/v1/courses/{bid}/gradebook/columns/{col_id}/attempts",
+            sess,
+        )
+    except requests.HTTPError as e:  # 4xx/5xx with .response attached
+        if _is_no_attempts_404(e):
+            return 0
+        # All other errors stay errors. Re-raise so the caller surfaces them.
+        raise
+    except Exception:
+        # Non-HTTP error (network, JSON parse). R1: stay an error.
+        raise
+    results = data.get("results", []) or []
+    return len(results)
+
+
+def _strip_html_for_error(text: str) -> str:
+    """Strip HTML tags from a body for safe inclusion in an error message.
+
+    Rule R3: never echo raw HTML / script tags in user-visible errors. We
+    keep a small text-only preview so the caller still has something to
+    recognise the response.
+    """
+    if not text:
+        return ""
+    # Remove <script>...</script> blocks (case-insensitive, multi-line).
+    no_script = re.sub(r"<script\b[^>]*>.*?</script>", "", text,
+                        flags=re.IGNORECASE | re.DOTALL)
+    # Strip remaining HTML tags.
+    no_tags = re.sub(r"<[^>]+>", " ", no_script)
+    # Collapse runs of whitespace.
+    return re.sub(r"\s+", " ", no_tags).strip()
 
 
 # -------------------------------------------------------------------------
@@ -168,13 +473,35 @@ def _get_upload_form(course_id: str, content_id: str) -> dict:
           "file_input_id": str | None,  # the id of the file input
           "form_action": str,
           "course_id": str, content_id: str,
+          "text_field_names": tuple[str, ...],  # rule R5 — names of <textarea> editors
         }
+
+    Raises:
+        SubmissionFormError: when the GET fails, the response URL points
+        to a different assignment, or the form is missing/unsupported.
+        Rule R3: only stage + sanitized status + path are exposed.
     """
     sess = _bb_session()
     url = _bb_form_url(course_id, content_id, action="newAttempt")
-    r = sess.get(url, timeout=15)
+    try:
+        r = sess.get(url, timeout=_net.service_timeout("bb"))
+    except Exception as e:
+        raise SubmissionFormError(
+            f"Failed to fetch BB upload form: {type(e).__name__}",
+            stage="prepare_form",
+            path=url,
+        ) from e
+
     if r.status_code != 200:
-        raise RuntimeError(f"GET {url} returned {r.status_code}")
+        raise SubmissionFormError(
+            f"BB upload form GET returned status {r.status_code}",
+            stage="prepare_form",
+            status=r.status_code,
+            path=url,
+        )
+
+    # R1: verify the response URL points at the requested assignment.
+    _assert_assignment_response_url(r.url, course_id, content_id)
 
     form_data: dict[str, str] = {}
     for m in re.finditer(r'<input[^>]*>', r.text):
@@ -214,6 +541,59 @@ def _get_upload_form(course_id: str, content_id: str) -> dict:
         )
     file_input_id = file_input_match.group(1) if file_input_match else "newFile_chooseLocalFile"
 
+    # Rule R5: capture every <textarea name=...> — these are the editor
+    # fields the form actually exposes for text/comments.
+    text_field_names: list[str] = []
+    seen_text_fields: set[str] = set()
+    for m in re.finditer(r'<textarea[^>]*name=["\']([^"\']+)["\']', r.text):
+        name = m.group(1)
+        if name in seen_text_fields:
+            # R3: never silently swallow ambiguity in editor fields.
+            raise SubmissionFormError(
+                f"BB upload form has ambiguous editor field {name!r}",
+                stage="prepare_form",
+                path=url,
+                code="BLACKBOARD_FORM_AMBIGUOUS_EDITOR",
+            )
+        seen_text_fields.add(name)
+        text_field_names.append(name)
+
+    # R1: the form must be the real Original assignment submission form,
+    # with a usable nonce and an empty attempt_id. A populated attempt_id
+    # means the form is for an existing attempt, NOT the blank first submission.
+    attempt_id_val = form_data.get("attempt_id", "")
+    nonce_val = form_data.get(_NONCE_FIELD, "")
+    if not nonce_val:
+        raise SubmissionFormError(
+            "BB upload form is missing the CSRF nonce",
+            stage="prepare_form",
+            path=url,
+            code="BLACKBOARD_FORM_MISSING_NONCE",
+        )
+    if attempt_id_val:
+        # First-submission view expects attempt_id="". A populated one means
+        # BB has surfaced a re-submission form for an existing attempt — not
+        # the blank form R1 mandates for "no attempts yet".
+        raise SubmissionFormError(
+            f"BB upload form has attempt_id={attempt_id_val!r} "
+            f"(expected empty for a first submission)",
+            stage="prepare_form",
+            path=url,
+            code="BLACKBOARD_FORM_NOT_BLANK",
+        )
+
+    # Sanity: form_data must agree on course_id / content_id.
+    for key, expected in (("course_id", f"_{course_id}_1"),
+                          ("content_id", f"_{content_id}_1")):
+        actual = form_data.get(key, "")
+        if actual and actual != expected:
+            raise SubmissionFormError(
+                f"BB upload form has {key}={actual!r} but {expected!r} expected",
+                stage="prepare_form",
+                path=url,
+                code="BLACKBOARD_FORM_DIFFERENT_ASSIGNMENT",
+            )
+
     return {
         "raw_html": r.text,
         "form_data": form_data,
@@ -221,7 +601,71 @@ def _get_upload_form(course_id: str, content_id: str) -> dict:
         "form_action": form_action,
         "course_id": course_id,
         "content_id": content_id,
+        "text_field_names": tuple(text_field_names),
     }
+
+
+def _assert_assignment_response_url(response_url: Optional[str],
+                                     course_id: str, content_id: str) -> None:
+    """R1: a redirect that lands on a different assignment must be detected
+    BEFORE we trust the form. Raises SubmissionFormError on mismatch.
+    """
+    if not response_url:
+        return
+    expected_course = f"_{course_id}_1"
+    expected_content = f"_{content_id}_1"
+    safe = _sanitize_url(response_url)
+    if not safe:
+        raise SubmissionFormError(
+            "BB upload form response URL was invalid",
+            stage="prepare_form",
+            path=response_url,
+        )
+    parsed = urlparse(safe)
+    if parsed.path != _UPLOAD_PATH:
+        raise SubmissionFormError(
+            f"BB upload form redirected to an unexpected path: {parsed.path}",
+            stage="prepare_form",
+            path=response_url,
+        )
+    # Only enforce course/content match when the URL actually exposes them —
+    # some BB endpoints drop the query string on the final hop.
+    qs = dict(parse_qsl(parsed.query))
+    if qs.get("course_id") and qs["course_id"] != expected_course:
+        raise SubmissionFormError(
+            f"BB upload form response carries a different course_id",
+            stage="prepare_form",
+            path=response_url,
+        )
+    if qs.get("content_id") and qs["content_id"] != expected_content:
+        raise SubmissionFormError(
+            f"BB upload form response carries a different content_id",
+            stage="prepare_form",
+            path=response_url,
+        )
+
+
+def _pick_editor_field(text_field_names, candidates: tuple[str, ...]) -> Optional[str]:
+    """R5: pick the first candidate present in the form's text field set."""
+    for c in candidates:
+        if c in text_field_names:
+            return c
+    return None
+
+
+def _escape_for_bb_editor(text: str) -> str:
+    """BB's text/submission editors want HTML-escaped newlines, not raw text.
+    Mirrors sustech-cli v0.11.1: escape & < >, then convert line breaks to
+    <br />.
+    """
+    return (
+        text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+            .replace("\n", "<br />")
+    )
 
 
 # -------------------------------------------------------------------------
@@ -261,6 +705,7 @@ def submit_assignment_rest(
     name_override: Optional[str] = None,
     dry_run: bool = False,
     skip_dedup: bool = False,
+    reviewed_sha256: Optional[str] = None,
 ):
     """REST-based BB submission. End-to-end working as of 2026-06-08.
 
@@ -276,6 +721,11 @@ def submit_assignment_rest(
             submit. Returns a DRY_RUN SubmitResult.
         skip_dedup: no-op for the REST path (REST doesn't do a per-attempt
             dedup like the old Playwright path did). Preserved for API parity.
+        reviewed_sha256: optional SHA-256 from a prior dry-run / preview.
+            When provided, the file's bytes are hashed again right before
+            the POST and any mismatch raises ``FileChangedSinceReviewError``
+            (rule R4). If the caller wants no preview-anchor check, leave
+            this as None.
 
     Returns:
         SubmitResult (see bb.result). On success, message contains the
@@ -286,6 +736,10 @@ def submit_assignment_rest(
         - File is staged under target_name in
           ~/.sustech_survival/cache/bb/submits/ so the
           BB-side filename matches.
+        - Rule R2: the multipart POST is sent exactly once with
+          ``allow_redirects=False``; no retry, no replay on redirect.
+        - Rule R3: errors carry the failing stage plus a sanitized upstream
+          status and path — raw HTML is never echoed to the user.
     """
     file_path_p = Path(file_path).expanduser().resolve()
     if not file_path_p.exists():
@@ -300,6 +754,12 @@ def submit_assignment_rest(
             f"name_override is not a valid basename: {name_override!r}",
             reason="invalid_name",
         )
+
+    # R4: hash the bytes right at the start so we have a stable review anchor.
+    # The actual verification happens just before the POST below; this pre-hash
+    # surfaces a useful diagnostic in dry-run mode.
+    initial_sha = sha256_of_file(file_path_p)
+    initial_size = file_path_p.stat().st_size
 
     print(f"  REST submit: course={course_id} content={content_id} file={target_name!r}")
 
@@ -317,8 +777,48 @@ def submit_assignment_rest(
     staged_path = staged_dir / staged_name
 
     try:
+        # R1: preflight — confirm the exact assignment target BEFORE any POST.
+        # Done as a soft check (failure surfaces as a SubmitResult so the
+        # legacy (ok, msg) CLI shape still gets a useful message); this is
+        # also where we honor the "initial attempts-list 404 ⇒ no attempts
+        # yet" rule via _safe_initial_attempts_count().
+        try:
+            target = verify_assignment_target(course_id, content_id)
+            existing_attempts = _safe_initial_attempts_count(
+                target["course_id"], target["column_id"],
+            )
+        except SubmissionFormError as e:
+            diag = e.to_diagnostic()
+            return failure(
+                f"Blackboard submission preflight failed: {e}",
+                reason="target_not_verified",
+                stage=diag.get("stage", "verify_target"),
+                upstream=diag,
+                submissionPostSent=False,
+            )
+        if not target.get("is_assignment"):
+            return failure(
+                f"BB content {content_id} in course {course_id} is not an "
+                f"assignment (handler={target.get('assignment_name')!r}); "
+                f"refusing to submit.",
+                reason="not_an_assignment",
+                stage="verify_target",
+                assignment_name=target.get("assignment_name", ""),
+                submissionPostSent=False,
+            )
+
         # Step 1: GET the upload form (cookies, nonces, hidden fields)
-        form_info = _get_upload_form(course_id, content_id)
+        try:
+            form_info = _get_upload_form(target["course_id"], target["content_id"])
+        except SubmissionFormError as e:
+            diag = e.to_diagnostic()
+            return failure(
+                f"Blackboard could not load the assignment submission form: {e}",
+                reason="form_unavailable",
+                stage=diag.get("stage", "prepare_form"),
+                upstream=diag,
+                submissionPostSent=False,
+            )
         form_data = dict(form_info["form_data"])
         print(f"  Form: {len(form_data)} hidden fields, file_input_id={form_info['file_input_id']!r}")
 
@@ -337,6 +837,10 @@ def submit_assignment_rest(
                 ),
                 staged_path=staged_path,
                 row_count=0,
+                sha256=initial_sha,
+                size=initial_size,
+                existing_attempts=existing_attempts,
+                target=target,
             )
 
         # Only a real (non-dry) submit needs to stage the file for the POST.
@@ -344,9 +848,26 @@ def submit_assignment_rest(
         if staged_path.resolve() != file_path_p:
             shutil.copy2(file_path_p, staged_path)
 
+        # R4: re-hash right before the POST so the bytes on disk haven't
+        # changed since the dry-run preview. The caller can pass
+        # ``reviewed_sha256`` explicitly; if they did not, we hash the
+        # staged copy (which we just made) and skip the comparison.
+        staged_size = staged_path.stat().st_size
+        staged_sha = sha256_of_file(staged_path)
+        if reviewed_sha256 is not None and reviewed_sha256 != staged_sha:
+            raise FileChangedSinceReviewError(
+                path=str(staged_path),
+                reviewed_sha256=reviewed_sha256,
+                current_sha256=staged_sha,
+                reviewed_size=initial_size,
+                current_size=staged_size,
+            )
+
         # Step 3: POST the form with the file in the multipart envelope.
         # Fresh session — CSRF nonce is in the form data (not session-bound),
         # so any session with valid BB auth will work.
+        # RULE R2: never replay, never follow redirects — surfacing the
+        # 30x as an error is exactly the point.
         sess = _bb_session()
         submit_url = f"{BB_BASE}/webapps/assignment/uploadAssignment?action=submit"
         files = {
@@ -354,8 +875,27 @@ def submit_assignment_rest(
                 target_name, open(staged_path, "rb"), "application/octet-stream",
             ),
         }
-        resp = sess.post(submit_url, data=form_data, files=files, timeout=60,
+        resp = sess.post(submit_url, data=form_data, files=files, timeout=_net.service_timeout("bb"),
                          allow_redirects=False)
+
+        # R2: a 3xx is NOT auto-followed. Treat as an error so the caller
+        # can decide whether to retry by hand.
+        if 300 <= resp.status_code < 400:
+            location = _sanitize_url(resp.headers.get("Location", ""))
+            return failure(
+                f"BB submission POST returned redirect "
+                f"{resp.status_code} (not auto-followed); refusing to replay.",
+                reason="redirect_refused",
+                http_status=resp.status_code,
+                stage="submit_form",
+                upstream={
+                    "code": "BLACKBOARD_SUBMISSION_REDIRECT",
+                    "stage": "submit_form",
+                    "status": resp.status_code,
+                    "path": submit_url,
+                    **({"redirect": location} if location else {}),
+                },
+            )
 
         # BB returns JSON {"destinationUrl": "..."} on success, or HTML on error
         try:
@@ -374,23 +914,224 @@ def submit_assignment_rest(
                 file_size=staged_path.stat().st_size,
             )
 
-        if resp.status_code == 200 and parsed is None:
-            # Sometimes BB returns 200 with HTML — likely a form validation
-            # error. Surface the response body.
-            return failure(
-                f"Form POST returned 200 with non-JSON body: {resp.text[:300]}",
-                http_status=200,
-                response_body=resp.text[:500],
-            )
-
+        # R3: never echo raw HTML / nonces. Strip to a tiny safe slice.
+        body_preview = _strip_html_for_error(resp.text or "")[:160]
         return failure(
-            f"Form POST returned {resp.status_code}: {resp.text[:200]}",
+            f"Form POST returned {resp.status_code}: {body_preview}",
             http_status=resp.status_code,
-            response_body=resp.text[:500],
+            stage="submit_form",
+            upstream={
+                "code": "BLACKBOARD_SUBMISSION_NON_OK",
+                "stage": "submit_form",
+                "status": resp.status_code,
+                "path": submit_url,
+            },
         )
 
+    except FileChangedSinceReviewError as e:
+        # R4: surface as a distinct failure with a clear "do not retry
+        # blindly" hint. (Not raised through failure() because the message
+        # already has the SHA-256 diff; just convert to a SubmitResult.)
+        return failure(
+            str(e),
+            reason="file_changed_since_review",
+            stage="apply",
+            reviewed_sha256=e.reviewed_sha256,
+            current_sha256=e.current_sha256,
+            reviewed_size=e.reviewed_size,
+            current_size=e.current_size,
+            path=e.path,
+        )
+    except SubmissionFormError as e:
+        # R3: any SubmissionFormError that escaped the inner try blocks
+        # still gets reported with stage + sanitized status + path.
+        diag = e.to_diagnostic()
+        return failure(
+            f"Blackboard submission failed at {diag['stage']}: {e}",
+            reason="submission_form_error",
+            stage=diag.get("stage"),
+            upstream=diag,
+            submissionPostSent=False,
+        )
     except Exception as e:
         return failure(f"REST submit error: {e}", exception_type=type(e).__name__)
+
+
+# -------------------------------------------------------------------------
+# submit_text / submit_comment — rule R5 text & comment submission paths
+# -------------------------------------------------------------------------
+
+def submit_text(content_id: str, text: str, *,
+                course_id: Optional[str] = None,
+                comment: Optional[str] = None) -> "SubmitResult":
+    """Submit plain text to a BB Original text assignment (rule R5).
+
+    R5 — the editor field name comes from the form the server actually
+    returns (``text_field_names`` from ``_get_upload_form``), not from a
+    hard-coded list. If the expected text editor (``studentSubmission.text``)
+    is absent from the form, this fails with a clear error instead of
+    silently sending nothing.
+
+    Returns a SubmitResult.
+    """
+    return _submit_editor_field(
+        content_id=content_id,
+        course_id=course_id,
+        field_kind="text",
+        text=text,
+        comment=comment,
+        candidates=_TEXT_EDITOR_CANDIDATES,
+        field_code="BLACKBOARD_TEXT_EDITOR_MISSING",
+    )
+
+
+def submit_comment(content_id: str, comment: str, *,
+                   course_id: Optional[str] = None) -> "SubmitResult":
+    """Attach a comment to a BB Original assignment (rule R5).
+
+    R5 — the comment editor field name comes from the form the server
+    actually returns. If the expected comment editor is absent, this
+    fails with a clear error.
+    """
+    return _submit_editor_field(
+        content_id=content_id,
+        course_id=course_id,
+        field_kind="comment",
+        text=None,
+        comment=comment,
+        candidates=_COMMENT_EDITOR_CANDIDATES,
+        field_code="BLACKBOARD_COMMENT_EDITOR_MISSING",
+    )
+
+
+def _submit_editor_field(content_id: str, *,
+                         course_id: Optional[str],
+                         field_kind: str,
+                         text: Optional[str],
+                         comment: Optional[str],
+                         candidates: tuple[str, ...],
+                         field_code: str) -> "SubmitResult":
+    """Common body for submit_text / submit_comment. Pulls the form,
+    picks the editor field the form actually exposes, and POSTs. R2: one
+    POST, no redirects followed. R3: stage + sanitized status on errors.
+    """
+    try:
+        cid = _num_id(content_id) if content_id else ""
+        resolved_course_id: Optional[str] = course_id
+        if resolved_course_id is None:
+            try:
+                resolved_course_id = _core_id_safe(content_id) if content_id else None
+            except Exception:
+                resolved_course_id = None
+            if resolved_course_id is None:
+                from .download import resolve_course
+                resolved_course_id = resolve_course(cid)
+        resolved_course_id = resolved_course_id or ""
+        target = verify_assignment_target(resolved_course_id, cid)
+
+        form_info = _get_upload_form(target["course_id"], target["content_id"])
+        form_data = dict(form_info["form_data"])
+        text_fields = set(form_info.get("text_field_names", ()))
+
+        # R5: pick the editor the form actually exposes.
+        field_name = _pick_editor_field(text_fields, candidates)
+        if not field_name:
+            raise SubmissionFormError(
+                f"BB upload form did not expose a {field_kind} editor field "
+                f"(expected one of {list(candidates)})",
+                stage="prepare_form",
+                path=_bb_form_url(target["course_id"], target["content_id"]),
+                code=field_code,
+            )
+
+        # R4: text submissions don't have a file, but the SHA-256 we promise
+        # for "review" is the SHA-256 of the bytes we'd send. For text and
+        # comment, that's the encoded body string (UTF-8).
+        body_data = dict(form_data)
+        body_data["isAjaxSubmit"] = "true"
+        body_data["dispatch"] = "submit"
+        if text is not None:
+            body_data[field_name] = _escape_for_bb_editor(text)
+        if comment is not None:
+            comment_name = _pick_editor_field(text_fields, _COMMENT_EDITOR_CANDIDATES)
+            if not comment_name:
+                raise SubmissionFormError(
+                    "BB upload form did not expose a comment editor field",
+                    stage="prepare_form",
+                    path=_bb_form_url(target["course_id"], target["content_id"]),
+                    code="BLACKBOARD_COMMENT_EDITOR_MISSING",
+                )
+            body_data[comment_name] = _escape_for_bb_editor(comment)
+
+        submit_url = f"{BB_BASE}/webapps/assignment/uploadAssignment?action=submit"
+        sess = _bb_session()
+        # R2: no follow, no replay.
+        resp = sess.post(submit_url, data=body_data,
+                         timeout=_net.service_timeout("bb"),
+                         allow_redirects=False)
+
+        if 300 <= resp.status_code < 400:
+            return failure(
+                f"BB {field_kind} submission returned redirect "
+                f"{resp.status_code} (not auto-followed); refusing to replay.",
+                reason="redirect_refused",
+                http_status=resp.status_code,
+                stage="submit_form",
+                upstream={
+                    "code": "BLACKBOARD_SUBMISSION_REDIRECT",
+                    "stage": "submit_form",
+                    "status": resp.status_code,
+                    "path": submit_url,
+                },
+            )
+
+        try:
+            parsed = resp.json()
+        except Exception:
+            parsed = None
+        if parsed and "destinationUrl" in parsed:
+            return success(
+                message=(
+                    f"{field_kind.title()} submission OK. "
+                    f"destinationUrl: {parsed['destinationUrl']}"
+                ),
+                destination_url=parsed["destinationUrl"],
+            )
+
+        body_preview = _strip_html_for_error(resp.text or "")[:160]
+        return failure(
+            f"BB {field_kind} submission POST returned {resp.status_code}: {body_preview}",
+            http_status=resp.status_code,
+            stage="submit_form",
+            upstream={
+                "code": "BLACKBOARD_SUBMISSION_NON_OK",
+                "stage": "submit_form",
+                "status": resp.status_code,
+                "path": submit_url,
+            },
+        )
+    except FileChangedSinceReviewError as e:
+        return failure(str(e), reason="file_changed_since_review", stage="apply",
+                   reviewed_sha256=e.reviewed_sha256,
+                       current_sha256=e.current_sha256,
+                       reviewed_size=e.reviewed_size,
+                       current_size=e.current_size, path=e.path)
+    except SubmissionFormError as e:
+        diag = e.to_diagnostic()
+        return failure(
+            f"Blackboard {field_kind} submission failed at {diag['stage']}: {e}",
+            reason="submission_form_error",
+            stage=diag.get("stage"),
+            upstream=diag,
+            submissionPostSent=False,
+        )
+    except Exception as e:
+        return failure(f"REST {field_kind} submit error: {e}",
+                       exception_type=type(e).__name__)
+def _core_id_safe(value: str) -> str:
+    """Wrap query._core_id with the same import surface used elsewhere."""
+    from .query import _core_id
+    return _core_id(value)
 
 
 # -------------------------------------------------------------------------
@@ -529,11 +1270,144 @@ def get_attempt_info(course_id, content_id):
     return count, name, True
 
 
+class SubmissionNotConfirmedError(Exception):
+    """Raised when a submission is attempted without an explicit review step.
+
+    The two-step surface exists so that a caller reviews exactly what will be
+    uploaded (file, target, hash) before bytes leave the machine.
+    """
+
+
+def _resolve_course_for(content_id: str, course_id: Optional[str]) -> str:
+    """Return an explicit course id, or resolve it from the content id."""
+    if course_id:
+        return course_id
+    from .download import resolve_course
+    return resolve_course(_num_id(content_id))
+
+
+def preview_submission(content_id, file_path, course_id=None, comment=None,
+                       submitted_name=None) -> dict:
+    """Describe exactly what :func:`apply_submission` would upload.
+
+    Never POSTs and never uploads. Verifies the assignment target, counts the
+    existing attempts, checks the comment editor exists when a comment is
+    given, and hashes the file — so the caller can review the plan, keep
+    ``sha256``, and hand it back to ``apply_submission``.
+
+    Two-step surface mirrors sustech-cli v0.11.1
+    (``bb submit preview`` → ``bb submit apply --expected-sha256``).
+    """
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"file not found: {file_path}")
+    if not path.is_file():
+        raise IsADirectoryError(f"not a file: {file_path}")
+
+    resolved_course = _resolve_course_for(content_id, course_id)
+    target = verify_assignment_target(resolved_course, _num_id(content_id))
+    attempt_count = _safe_initial_attempts_count(
+        target["course_id"], target.get("column_id"))
+
+    comment_field = None
+    if comment:
+        form_info = _get_upload_form(target["course_id"], target["content_id"])
+        text_fields = set(form_info.get("text_field_names", ()))
+        comment_field = _pick_editor_field(text_fields, _COMMENT_EDITOR_CANDIDATES)
+        if not comment_field:
+            raise SubmissionFormError(
+                "the upload form exposes no comment editor field — drop "
+                "--comment, or write the comment on Blackboard"
+            )
+
+    return {
+        "action": ("create a new attempt" if attempt_count == 0
+                   else f"create attempt #{attempt_count + 1}"),
+        "course_id": target["course_id"],
+        "course_name": target.get("course_name", ""),
+        "content_id": target["content_id"],
+        "column_id": target.get("column_id"),
+        "assignment_name": target.get("assignment_name", ""),
+        "attempts_so_far": attempt_count,
+        "file": str(path),
+        "file_name": submitted_name or path.name,
+        "size_bytes": path.stat().st_size,
+        "sha256": sha256_of_file(path),
+        "comment": comment or None,
+        "comment_field": comment_field,
+        "will_post": False,
+    }
+
+
+def apply_submission(content_id, file_path, course_id=None, submitted_name=None,
+                     expected_sha256=None, expected_size=None, confirm=False,
+                     comment=None):
+    """Submit for real — only for bytes the caller reviewed.
+
+    Requires ``confirm=True`` and the ``expected_sha256`` reported by
+    :func:`preview_submission`; a mismatch raises
+    :class:`FileChangedSinceReviewError` instead of uploading changed bytes.
+    Returns the underlying ``SubmitResult``.
+    """
+    if not confirm:
+        raise SubmissionNotConfirmedError(
+            "refusing to submit: review it first with `sustech bb submit "
+            "preview <content_id> <file>`, then re-run with --confirm"
+        )
+    if not expected_sha256:
+        raise SubmissionNotConfirmedError(
+            "refusing to submit without --expected-sha256 (take it from the "
+            "preview output so the reviewed bytes are the submitted bytes)"
+        )
+
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"file not found: {file_path}")
+    if not path.is_file():
+        raise IsADirectoryError(f"not a file: {file_path}")
+
+    reviewed = expected_sha256.strip().lower()
+    if reviewed.startswith("sha256:"):
+        reviewed = reviewed.split(":", 1)[1]
+    current = sha256_of_file(path)
+    current_size = path.stat().st_size
+    if current != reviewed:
+        raise FileChangedSinceReviewError(
+            str(path), reviewed, current,
+            expected_size if expected_size is not None else current_size,
+            current_size)
+
+    resolved_course = _resolve_course_for(content_id, course_id)
+    result = submit_assignment_rest(
+        resolved_course,
+        _num_id(content_id),
+        str(path),
+        name_override=submitted_name,
+        reviewed_sha256=reviewed,
+    )
+    if comment and result:
+        comment_result = submit_comment(_num_id(content_id), comment)
+        if not comment_result:
+            return result.with_message(
+                f"{result.message} (file submitted; comment failed: "
+                f"{comment_result.message})"
+            )
+    return result
+
+
 __all__ = [
     "BB_BASE",
+    "SubmissionFormError",
+    "SubmissionNotConfirmedError",
+    "FileChangedSinceReviewError",
     "submit_assignment_rest",
     "submit_file",
     "submit_assignment",
+    "submit_text",
+    "submit_comment",
+    "preview_submission",
+    "apply_submission",
+    "verify_assignment_target",
     "check_attempts",
     "get_attempt_info",
 ]

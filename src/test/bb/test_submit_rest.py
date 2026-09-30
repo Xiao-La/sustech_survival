@@ -1,6 +1,7 @@
 """Tests for sustech_survival.bb.submit (REST-based BB submission)."""
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 from pathlib import Path
@@ -51,12 +52,28 @@ MOCK_FORM_RESPONSE_JSON = json.dumps({
 
 # --- _get_upload_form parsing tests -----------------------------------------
 
+# Lightweight stand-in for verify_assignment_target — the existing tests don't
+# want a real BB session, so we patch out the R1 preflight. The dedicated
+# rules-tests in test_submit_rest_rules.py cover verify_assignment_target
+# directly.
+_TARGET_OK = {
+    "course_id": "8328", "content_id": "610821",
+    "column_id": "_777_1", "assignment_name": "Report of exp 5",
+    "course_name": "EE-100", "is_assignment": True,
+}
+
+
 def test_get_upload_form_extracts_all_hidden_fields():
     """All hidden inputs in the form should be extracted into form_data."""
     from sustech_survival.bb.submit import _get_upload_form
-    with patch("sustech_survival.bb.submit._bb_session") as mock_sess:
+    with patch("sustech_survival.bb.submit._bb_session") as mock_sess, \
+         patch("sustech_survival.bb.submit.verify_assignment_target",
+               return_value=_TARGET_OK), \
+         patch("sustech_survival.bb.submit._safe_initial_attempts_count",
+               return_value=0):
         mock_response = MagicMock()
         mock_response.status_code = 200
+        mock_response.url = "https://bb.sustech.edu.cn/webapps/assignment/uploadAssignment?action=newAttempt&content_id=_610821_1&course_id=_8328_1&group_id="
         mock_response.text = MOCK_UPLOAD_PAGE_HTML
         mock_sess.return_value.get.return_value = mock_response
         info = _get_upload_form("8328", "610821")
@@ -74,9 +91,14 @@ def test_get_upload_form_extracts_all_hidden_fields():
 def test_get_upload_form_extracts_file_input_id():
     """The unnamed file input's id should be captured for reference."""
     from sustech_survival.bb.submit import _get_upload_form
-    with patch("sustech_survival.bb.submit._bb_session") as mock_sess:
+    with patch("sustech_survival.bb.submit._bb_session") as mock_sess, \
+         patch("sustech_survival.bb.submit.verify_assignment_target",
+               return_value=_TARGET_OK), \
+         patch("sustech_survival.bb.submit._safe_initial_attempts_count",
+               return_value=0):
         mock_response = MagicMock()
         mock_response.status_code = 200
+        mock_response.url = "https://bb.sustech.edu.cn/webapps/assignment/uploadAssignment?action=newAttempt&content_id=_610821_1&course_id=_8328_1&group_id="
         mock_response.text = MOCK_UPLOAD_PAGE_HTML
         mock_sess.return_value.get.return_value = mock_response
         info = _get_upload_form("8328", "610821")
@@ -87,9 +109,14 @@ def test_get_upload_form_extracts_file_input_id():
 def test_get_upload_form_extracts_form_action():
     """The form's action URL should be captured."""
     from sustech_survival.bb.submit import _get_upload_form
-    with patch("sustech_survival.bb.submit._bb_session") as mock_sess:
+    with patch("sustech_survival.bb.submit._bb_session") as mock_sess, \
+         patch("sustech_survival.bb.submit.verify_assignment_target",
+               return_value=_TARGET_OK), \
+         patch("sustech_survival.bb.submit._safe_initial_attempts_count",
+               return_value=0):
         mock_response = MagicMock()
         mock_response.status_code = 200
+        mock_response.url = "https://bb.sustech.edu.cn/webapps/assignment/uploadAssignment?action=newAttempt&content_id=_610821_1&course_id=_8328_1&group_id="
         mock_response.text = MOCK_UPLOAD_PAGE_HTML
         mock_sess.return_value.get.return_value = mock_response
         info = _get_upload_form("8328", "610821")
@@ -100,9 +127,14 @@ def test_get_upload_form_extracts_form_action():
 def test_get_upload_form_uses_correct_url():
     """GET should hit /uploadAssignment with content_id, course_id, group_id."""
     from sustech_survival.bb.submit import _get_upload_form
-    with patch("sustech_survival.bb.submit._bb_session") as mock_sess:
+    with patch("sustech_survival.bb.submit._bb_session") as mock_sess, \
+         patch("sustech_survival.bb.submit.verify_assignment_target",
+               return_value=_TARGET_OK), \
+         patch("sustech_survival.bb.submit._safe_initial_attempts_count",
+               return_value=0):
         mock_response = MagicMock()
         mock_response.status_code = 200
+        mock_response.url = "https://bb.sustech.edu.cn/webapps/assignment/uploadAssignment?action=newAttempt&content_id=_610821_1&course_id=_8328_1&group_id="
         mock_response.text = MOCK_UPLOAD_PAGE_HTML
         mock_sess.return_value.get.return_value = mock_response
         _get_upload_form("8328", "610821")
@@ -116,15 +148,40 @@ def test_get_upload_form_uses_correct_url():
 
 # --- submit_assignment_rest end-to-end --------------------------------------
 
+def _patch_preflight_ok():
+    """Context-manager helper: mocks the R1 preflight resolvers so
+    submit tests can pretend the BB target exists without a live session.
+
+    Usage::
+
+        with _patch_preflight_ok(), \
+             patch("sustech_survival.bb.submit._bb_session") as mock_sess:
+            ...
+    """
+    @contextlib.contextmanager
+    def _ctx():
+        with patch(
+            "sustech_survival.bb.submit.verify_assignment_target",
+            return_value=_TARGET_OK,
+        ), patch(
+            "sustech_survival.bb.submit._safe_initial_attempts_count",
+            return_value=0,
+        ):
+            yield
+    return _ctx()
+
+
 def test_submit_assignment_rest_dry_run(tmp_path):
     """Dry-run: GET form, do NOT POST, return descriptive message."""
     from sustech_survival.bb.submit import submit_assignment_rest
     from sustech_survival.bb.result import SubmitStatus
     pdf = tmp_path / "test.pdf"
     pdf.write_bytes(b"%PDF-1.4\n")
-    with patch("sustech_survival.bb.submit._bb_session") as mock_sess:
+    with patch("sustech_survival.bb.submit._bb_session") as mock_sess, \
+         _patch_preflight_ok():
         mock_response = MagicMock()
         mock_response.status_code = 200
+        mock_response.url = "https://bb.sustech.edu.cn/webapps/assignment/uploadAssignment?action=newAttempt&content_id=_610821_1&course_id=_8328_1&group_id="
         mock_response.text = MOCK_UPLOAD_PAGE_HTML
         mock_sess.return_value.get.return_value = mock_response
         result = submit_assignment_rest(
@@ -172,9 +229,11 @@ def test_submit_assignment_rest_submits_form(tmp_path):
     from sustech_survival.bb.result import SubmitStatus
     pdf = tmp_path / "test.pdf"
     pdf.write_bytes(b"%PDF-1.4\n")
-    with patch("sustech_survival.bb.submit._bb_session") as mock_sess:
+    with patch("sustech_survival.bb.submit._bb_session") as mock_sess, \
+         _patch_preflight_ok():
         get_resp = MagicMock()
         get_resp.status_code = 200
+        get_resp.url = "https://bb.sustech.edu.cn/webapps/assignment/uploadAssignment?action=newAttempt&content_id=_610821_1&course_id=_8328_1&group_id="
         get_resp.text = MOCK_UPLOAD_PAGE_HTML
         post_resp = MagicMock()
         post_resp.status_code = 200
@@ -199,9 +258,11 @@ def test_submit_assignment_rest_sends_file_in_multipart(tmp_path):
     from sustech_survival.bb.submit import submit_assignment_rest
     pdf = tmp_path / "test.pdf"
     pdf.write_bytes(b"%PDF-1.4\n")
-    with patch("sustech_survival.bb.submit._bb_session") as mock_sess:
+    with patch("sustech_survival.bb.submit._bb_session") as mock_sess, \
+         _patch_preflight_ok():
         get_resp = MagicMock()
         get_resp.status_code = 200
+        get_resp.url = "https://bb.sustech.edu.cn/webapps/assignment/uploadAssignment?action=newAttempt&content_id=_610821_1&course_id=_8328_1&group_id="
         get_resp.text = MOCK_UPLOAD_PAGE_HTML
         post_resp = MagicMock()
         post_resp.status_code = 200
@@ -224,9 +285,11 @@ def test_submit_assignment_rest_includes_picker_fields(tmp_path):
     from sustech_survival.bb.submit import submit_assignment_rest
     pdf = tmp_path / "test.pdf"
     pdf.write_bytes(b"%PDF-1.4\n")
-    with patch("sustech_survival.bb.submit._bb_session") as mock_sess:
+    with patch("sustech_survival.bb.submit._bb_session") as mock_sess, \
+         _patch_preflight_ok():
         get_resp = MagicMock()
         get_resp.status_code = 200
+        get_resp.url = "https://bb.sustech.edu.cn/webapps/assignment/uploadAssignment?action=newAttempt&content_id=_610821_1&course_id=_8328_1&group_id="
         get_resp.text = MOCK_UPLOAD_PAGE_HTML
         post_resp = MagicMock()
         post_resp.status_code = 200
@@ -255,9 +318,11 @@ def test_submit_assignment_rest_uses_target_name(tmp_path):
     from sustech_survival.bb.submit import submit_assignment_rest
     pdf = tmp_path / "test.pdf"
     pdf.write_bytes(b"%PDF-1.4\n")
-    with patch("sustech_survival.bb.submit._bb_session") as mock_sess:
+    with patch("sustech_survival.bb.submit._bb_session") as mock_sess, \
+         _patch_preflight_ok():
         get_resp = MagicMock()
         get_resp.status_code = 200
+        get_resp.url = "https://bb.sustech.edu.cn/webapps/assignment/uploadAssignment?action=newAttempt&content_id=_610821_1&course_id=_8328_1&group_id="
         get_resp.text = MOCK_UPLOAD_PAGE_HTML
         post_resp = MagicMock()
         post_resp.status_code = 200
@@ -281,9 +346,11 @@ def test_submit_assignment_rest_handles_non_json_response(tmp_path):
     from sustech_survival.bb.result import SubmitStatus
     pdf = tmp_path / "test.pdf"
     pdf.write_bytes(b"%PDF-1.4\n")
-    with patch("sustech_survival.bb.submit._bb_session") as mock_sess:
+    with patch("sustech_survival.bb.submit._bb_session") as mock_sess, \
+         _patch_preflight_ok():
         get_resp = MagicMock()
         get_resp.status_code = 200
+        get_resp.url = "https://bb.sustech.edu.cn/webapps/assignment/uploadAssignment?action=newAttempt&content_id=_610821_1&course_id=_8328_1&group_id="
         get_resp.text = MOCK_UPLOAD_PAGE_HTML
         post_resp = MagicMock()
         post_resp.status_code = 200
@@ -306,9 +373,11 @@ def test_submit_assignment_rest_handles_500(tmp_path):
     from sustech_survival.bb.result import SubmitStatus
     pdf = tmp_path / "test.pdf"
     pdf.write_bytes(b"%PDF-1.4\n")
-    with patch("sustech_survival.bb.submit._bb_session") as mock_sess:
+    with patch("sustech_survival.bb.submit._bb_session") as mock_sess, \
+         _patch_preflight_ok():
         get_resp = MagicMock()
         get_resp.status_code = 200
+        get_resp.url = "https://bb.sustech.edu.cn/webapps/assignment/uploadAssignment?action=newAttempt&content_id=_610821_1&course_id=_8328_1&group_id="
         get_resp.text = MOCK_UPLOAD_PAGE_HTML
         post_resp = MagicMock()
         post_resp.status_code = 500

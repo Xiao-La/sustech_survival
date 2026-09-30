@@ -1,3 +1,4 @@
+from ... import _net
 # =============================================================================
 # CARSI DS WAYF — China CERNET Federation Discovery Service
 # =============================================================================
@@ -67,7 +68,7 @@ def login_via_carsi(
         search_input = page.locator(
             f"input[placeholder='{search_placeholder}']"
         ).first
-        search_input.wait_for(timeout=5000)
+        search_input.wait_for(timeout=_net.page_timeout_ms("sso"))
         search_input.fill(idp_display_name[:6])  # partial match is enough
         page.wait_for_timeout(1500)
         print(f"  → Searched for: {idp_display_name}")

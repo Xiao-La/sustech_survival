@@ -1,3 +1,4 @@
+from ... import _net
 # =============================================================================
 # Wiley Online Library — Cloudscraper Authorizer
 # =============================================================================
@@ -27,7 +28,7 @@ class WileyAuth(Authorizer):
         })
 
     def check(self) -> tuple[bool, str]:
-        r = self.scraper.get(WILEY_BASE, timeout=15)
+        r = self.scraper.get(WILEY_BASE, timeout=_net.service_timeout("wiley"))
         if r.status_code == 200 and len(r.text) > 5000 and "wiley" in r.text.lower():
             return True, "Wiley Online Library accessible via cloudscraper"
         return False, f"Wiley returned {r.status_code}"
@@ -44,7 +45,7 @@ class WileyAuth(Authorizer):
 
     def search(self, query: str, max_results: int = 25) -> dict:
         params = {"query": query, "pageSize": min(max_results, 100)}
-        r = self.scraper.get(f"{WILEY_BASE}/search/searchall", params=params, timeout=20)
+        r = self.scraper.get(f"{WILEY_BASE}/search/searchall", params=params, timeout=_net.service_timeout("wiley"))
         return {"results": [], "count": 0, "note": "Wiley HTML search not yet parsed"} if r.status_code == 200 else {"error": f"HTTP {r.status_code}", "results": []}
 
     @property

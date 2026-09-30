@@ -1,3 +1,4 @@
+from ... import _net
 # =============================================================================
 # RSC (Royal Society of Chemistry) — Shibboleth/CARSI Authorizer
 # =============================================================================
@@ -85,14 +86,14 @@ class RSCAuthorizer(ShibbolethAuthorizer):
         try:
             # Step 1: Navigate directly to RSC + SUSTech Shibboleth (no WAYF needed)
             print(f"[1/4] Navigating to RSC+SUSTech Shibboleth...")
-            page.goto(RSC_DIRECT_LOGIN, wait_until="domcontentloaded", timeout=30000)
+            page.goto(RSC_DIRECT_LOGIN, wait_until="domcontentloaded", timeout=_net.page_timeout_ms("rsc"))
             page.wait_for_timeout(3000)
 
             # Step 2: Should now be at SUSTech CAS
             if "cas.sustech.edu.cn" not in page.url:
                 print(f"[2/4] Not at CAS — URL: {page.url}")
                 try:
-                    page.get_by_text("Log in via your home institution").click(timeout=5000)
+                    page.get_by_text("Log in via your home institution").click(timeout=_net.page_timeout_ms("rsc"))
                     page.wait_for_timeout(3000)
                 except Exception:
                     pass
@@ -115,7 +116,7 @@ class RSCAuthorizer(ShibbolethAuthorizer):
                 ]:
                     try:
                         btn = page.locator(selector).first
-                        if btn.is_visible(timeout=2000):
+                        if btn.is_visible(timeout=_net.service_timeout("rsc")):
                             btn.click()
                             print(f"  → Clicked: {selector}")
                             break
