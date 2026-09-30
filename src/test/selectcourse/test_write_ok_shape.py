@@ -32,7 +32,7 @@ class _FakeClient:
 @pytest.fixture()
 def client(monkeypatch):
     monkeypatch.setattr(scapi, "_client", lambda xn, xq: _FakeClient())
-    return create_app().test_client()
+    return create_app(skin="default").test_client()
 
 
 def test_drop_success_carries_ok_true(client):

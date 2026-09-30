@@ -160,8 +160,14 @@ class Semester:
 
     @property
     def human(self) -> str:
-        """English display name, e.g. '2026 Spring' (cohort year)."""
-        return f"{self.cohort_year} {self.season.name.capitalize()}"
+        """English display name, e.g. '2026 Spring'.
+
+        The year is the one the term STARTS in: the 2026-2027 fall term is
+        '2026 Fall' (it runs into January 2027), matching TIS's own
+        ``xnxqmc``/``XNXQ_EN`` fields.
+        """
+        year = self.end_year if self.season is Season.FALL else self.cohort_year
+        return f"{year} {self.season.name.capitalize()}"
 
     @property
     def xnxq(self) -> str:

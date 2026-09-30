@@ -124,12 +124,12 @@ class TestIdentity:
         assert fall.human == "2026 Fall"
 
     def test_spring_tis(self, spring):
-        # Spring 2026: cohort=2026, end=2026, term=2 → TIS code 2026-20262.
-        assert spring.tis == "2026-20262"
+        # Spring 2026 belongs to the 2025-2026 academic year → 2025-20262.
+        assert spring.tis == "2025-20262"
 
     def test_fall_tis(self, fall):
-        # Fall 2026: cohort=2026, end=2027, term=1 → TIS code 2027-20261.
-        assert fall.tis == "2027-20261"
+        # Fall 2026 starts the 2026-2027 academic year → 2026-20271.
+        assert fall.tis == "2026-20271"
 
     def test_level(self, spring, fall):
         assert spring.level == "undergraduate"

@@ -243,16 +243,33 @@ def _expand_manifest(manifest_api: list,
     """Translate the skin's manifest entries into a concrete set of endpoint
     names plus a set of module-level references the head should log.
 
-    Returns ``(wanted_names, wanted_module_names)``. A bare entry like
-    ``"tis"`` expands to all endpoints whose name starts with ``"tis."``.
-    A dotted entry like ``"tis.info"`` is taken as-is.
+    Returns ``(wanted_names, wanted_module_names)``. Three entry shapes are
+    accepted, so a skin written against any generation of the manifest format
+    still mounts what it asks for:
+
+    - ``"tis"``            — a module name: expands to every endpoint of it.
+    - ``"tis.info"``       — a dotted endpoint name, taken as-is.
+    - ``"/api/tis/info"``  — the endpoint's path, which is how skins documented
+      their ``api`` list before module names existed (and what all
+      user-installed skins still carry). Unmatched paths fall through to
+      ``wanted_module_names`` so the head's "missing APIs" warning names them.
     """
     wanted_names: set[str] = set()
     wanted_module_names: set[str] = set()
+    by_path: dict = {}
+    for mod_api in discovered.values():
+        for ep in mod_api.endpoints:
+            by_path.setdefault(ep.path, ep.name)
     for entry in manifest_api:
         if not entry:
             continue
-        if "." in entry:
+        if entry.startswith("/"):
+            name = by_path.get(entry)
+            if name is None:
+                wanted_module_names.add(entry)
+            else:
+                wanted_names.add(name)
+        elif "." in entry:
             wanted_names.add(entry)
         else:
             wanted_module_names.add(entry)

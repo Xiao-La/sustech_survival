@@ -64,8 +64,13 @@ class CleClient:
     :meth:`close` when done (the CLI does it in a ``finally``).
     """
 
-    def __init__(self, session: Optional[EhallSession] = None):
+    def __init__(self, session: Optional[EhallSession] = None,
+                 today: Optional[date] = None):
         self.session = session or EhallSession()
+        # Injectable clock, same shape as Context(dt=...) / course_when(now=...):
+        # the week window is derived from "today", so offline fixtures must pin
+        # it or they drift into "week 2" the moment the real calendar moves.
+        self._today = today
         self._identity: Optional[Dict[str, str]] = None
         self._buckets: Optional[Dict[str, str]] = None
         self._grid: Dict[int, List[Dict[str, Any]]] = {}
@@ -157,8 +162,12 @@ class CleClient:
             raise CleError("no active service configuration (SFZZSY=1) returned")
         sem = CleSemester.from_rows(configs[0], self.semester_calendar())
         if sem.starts_on:
-            sem.current_week = self.week_of(date.today(), sem)
+            sem.current_week = self.week_of(self.today(), sem)
         return sem
+
+    def today(self) -> date:
+        """The client's clock — the injected date, else the real one."""
+        return self._today or date.today()
 
     def week_of(self, day: date, semester: Optional[CleSemester] = None) -> int:
         """Teaching week number for ``day`` (week 1 starts on ``QSRQ``)."""
@@ -286,7 +295,7 @@ class CleClient:
         if day is not None:
             targets = [day]
         else:
-            targets = working_days(date.today() + timedelta(days=1), days)
+            targets = working_days(self.today() + timedelta(days=1), days)
 
         buckets = self.buckets()
         sem = self.semester()
@@ -330,7 +339,7 @@ class CleClient:
     def walkin(self, service: Optional[str] = None) -> List[CleSlot]:
         """Today's still-free slots — the walk-in candidates (don't count on quota)."""
         return self.slots(
-            day=date.today(), days=1, service=service, include_blocked=False
+            day=self.today(), days=1, service=service, include_blocked=False
         )
 
     def find_slot(self, slot_id: str, weeks_ahead: int = 6) -> CleSlot:

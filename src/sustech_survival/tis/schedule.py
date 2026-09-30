@@ -10,6 +10,7 @@ No browser/Playwright needed — pure requests.
 from __future__ import annotations
 
 import sys
+import re
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent))
@@ -154,6 +155,82 @@ def week_list() -> list[int]:
     r = sess.post('https://tis.sustech.edu.cn/component/queryzclist',
                   data=current_semester())
     return [item['ZC'] for item in r.json()]
+
+
+# -- Bridge to the academic-calendar layer --------------------------------
+
+_WEEK_TEXT_RE = re.compile(r"\[(\d+)-(\d+)(单|双)?周\]")
+
+
+def weeks_from_zc(zc: str | None, sksj: str = "", max_week: int = 16) -> tuple[int, ...]:
+    """Teaching weeks for one row, from the ``ZC`` bitmap (text as fallback).
+
+    ``ZC`` is a 34-char 0/1 string indexed by 1-based week — position 0 is a
+    leading placeholder. Verified live: ``[1-16周]`` →
+    ``'0111111111111111100000000000000000'``, ``[1-15单周]`` →
+    ``'0101010101010101000000000000000000'``. Only ``semester_schedule()``
+    (``queryxszykbzong``) returns it; the per-week endpoint answers ``ZC=None``,
+    so the ``SKSJ`` annotation is the fallback.
+    """
+    if zc:
+        weeks = tuple(i for i, c in enumerate(zc[1:], start=1) if c == "1")
+        if weeks:
+            return weeks
+    m = _WEEK_TEXT_RE.search((sksj or "").replace("\n", " "))
+    if not m:
+        return tuple(range(1, max_week + 1))
+    start, end, parity = int(m.group(1)), int(m.group(2)), m.group(3)
+    weeks = list(range(start, end + 1))
+    if parity == "单":
+        weeks = [w for w in weeks if w % 2 == 1]
+    elif parity == "双":
+        weeks = [w for w in weeks if w % 2 == 0]
+    return tuple(weeks)
+
+
+def class_times(xn: str | None = None, xq: str | None = None) -> list:
+    """This term's meetings as ``calendar.ClassTime`` objects.
+
+    Bridges the TIS schedule feed into the academic-calendar layer, which owns
+    date intelligence: week parity, holidays, and 补课 (makeup-class) transfer.
+    Duplicate rows for one block (TIS repeats a row per ``jc`` slot) collapse —
+    identity is (title, weekday, first period, last period).
+
+    Periods come from ``KSJC``/``JSJC`` (NOT the ``jc`` tail in ``KEY``, which is
+    only the day's block index).
+    """
+    from sustech_survival.calendar import ClassTime
+
+    out, seen = [], set()
+    for row in semester_schedule(xn, xq):
+        sksj = (row.get("SKSJ") or "").replace("\n", " ")
+        key = row.get("KEY", "")
+        if not key.startswith("xq") or "_jc" not in key:
+            continue
+        title = sksj.split("[")[0].strip()
+        if not title:
+            continue
+        try:
+            weekday = int(key.split("_")[0][2:]) - 1        # 0=Mon .. 6=Sun
+            ks, js = int(row.get("KSJC") or 0), int(row.get("JSJC") or 0)
+        except (TypeError, ValueError):
+            continue
+        if ks <= 0 or js < ks:
+            continue
+        ident = (title, weekday, ks, js)
+        if ident in seen:
+            continue
+        seen.add(ident)
+        blocks = re.findall(r"\[([^\]]+)\]", sksj)
+        out.append(ClassTime(
+            weeks=weeks_from_zc(row.get("ZC"), sksj),
+            weekday=weekday,
+            periods=tuple(range(ks, js + 1)),
+            title=title,
+            teacher=blocks[0] if blocks else "",
+            room=blocks[-2] if len(blocks) > 2 else "",
+        ))
+    return out
 
 # NOTE: the standalone argparse CLI was removed 2026-08-10 during the
 # CLI unification. Use `sustech tis schedule` (defined inline in

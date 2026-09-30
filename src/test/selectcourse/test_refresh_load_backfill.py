@@ -58,7 +58,7 @@ class _RLClient:
 
 @pytest.fixture()
 def app():
-    return create_app()
+    return create_app(skin="default")
 
 
 def test_refresh_load_backfills_requested_rwhs(app, monkeypatch):

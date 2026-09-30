@@ -45,7 +45,10 @@ language machinery — language is the skin's choice, not the head's business.
                         version this skin needs, e.g. ``"2026.8.16"``.
                         If the running module is older, the loader warns
                         (or errors when ``strict=True``).
-  - ``api``    optional            — the ``/api/*`` endpoints the skin calls
+  - ``api``    optional            — the API surface the skin calls. Entries
+                                    are module names (``"tis"`` → every tis
+                                    endpoint), dotted endpoint names
+                                    (``"tis.info"``), or ``/api/*`` paths.
 """
 from __future__ import annotations
 
