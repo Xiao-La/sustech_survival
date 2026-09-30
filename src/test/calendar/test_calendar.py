@@ -461,8 +461,15 @@ class TestIcalExport:
 # -- Online load (network-required) ------------------------------
 
 
+@pytest.mark.live
 class TestOnlineLoad:
-    """These hit the GitHub raw URL — skip if network unavailable."""
+    """These hit the GitHub raw URL — skip if network unavailable.
+
+    Marked live on purpose: the whole point of the default `-m "not live"`
+    is that an offline run never needs the network, and this class would
+    otherwise reach GitHub (and stall for the full _net timeout when the
+    remote is slow) inside a run that claims to be offline.
+    """
 
     @pytest.fixture(scope="class")
     def network_ok(self):
