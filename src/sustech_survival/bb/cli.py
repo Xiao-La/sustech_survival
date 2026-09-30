@@ -70,10 +70,16 @@ def load_session_or_exit():
 # -- Safe wrappers ------------------------------------------------------
 
 def safe_attempts(ctx, numeric_cid, content_id):
+    """Attempts for one content item, as ``(attempts, error)``.
+
+    ``attempts is None`` means the read itself failed — callers must not
+    report that as "not submitted". An empty list means the gradebook
+    answered and there are genuinely no attempts.
+    """
     try:
-        return discover_attempt_ids(ctx, numeric_cid, content_id)
-    except Exception:
-        return []
+        return discover_attempt_ids(ctx, numeric_cid, content_id), ""
+    except Exception as e:
+        return None, str(e)
 
 
 # -- Assignment list command --------------------------------------------
@@ -82,11 +88,16 @@ def list_assignments(ctx, numeric_cid, course_name, assignments):
     """List all assignments with attempt counts."""
     click.secho(f"\n📋  Assignments - {course_name}\n", fg="cyan", bold=True)
     for cid, title in assignments:
-        atts = safe_attempts(ctx, numeric_cid, cid)
-        status = f"{len(atts)} attempt(s)" if atts else err_s("not submitted")
+        atts, err = safe_attempts(ctx, numeric_cid, cid)
+        if atts is None:
+            status = err_s(f"status unavailable ({err})")
+        elif atts:
+            status = f"{len(atts)} attempt(s)"
+        else:
+            status = err_s("not submitted")
         click.secho(f"  [{cid}] {title[:44]}", fg="white")
         click.echo(f"       {status}")
-        for aid, (anum, ts) in atts:
+        for aid, anum, ts in (atts or []):
             click.echo(f"         {em(f'Attempt {anum}')}  {ts[:25]}")
         print()
 
@@ -97,8 +108,13 @@ def all_status(ctx, numeric_cid, course_name, assignments):
     """Show submitted/not submitted for all assignments."""
     click.secho(f"\n📋  Submission Status - {course_name}\n", fg="cyan", bold=True)
     for cid, title in assignments:
-        atts = safe_attempts(ctx, numeric_cid, cid)
-        status = ok_s(f"submitted ({len(atts)} attempt(s))") if atts else err_s("not submitted")
+        atts, err = safe_attempts(ctx, numeric_cid, cid)
+        if atts is None:
+            status = err_s(f"status unavailable ({err})")
+        elif atts:
+            status = ok_s(f"submitted ({len(atts)} attempt(s))")
+        else:
+            status = err_s("not submitted")
         click.secho(f"  [{cid}] {title[:44]}", fg="white")
         click.echo(f"       {status}")
     print()
@@ -113,24 +129,31 @@ def single_assignment(ctx, session_cookies, numeric_cid,
 
     if att_keyword == "status":
         # Status of one specific assignment
-        atts = safe_attempts(ctx, numeric_cid, content_id)
-        status = ok_s(f"submitted ({len(atts)} attempt(s))") if atts else err_s("not submitted")
+        atts, err = safe_attempts(ctx, numeric_cid, content_id)
+        if atts is None:
+            status = err_s(f"status unavailable ({err})")
+        elif atts:
+            status = ok_s(f"submitted ({len(atts)} attempt(s))")
+        else:
+            status = err_s("not submitted")
         click.secho(f"\n📋  Assignment {content_id}\n", fg="cyan", bold=True)
         click.echo(f"  Status: {status}")
-        if atts:
-            for aid, (anum, ts) in atts:
-                click.echo(f"  {em(f'Attempt {anum}')}  {ts[:25]}")
+        for aid, anum, ts in (atts or []):
+            click.echo(f"  {em(f'Attempt {anum}')}  {ts[:25]}")
         print()
         return
 
     if att_keyword == "attempts" or attempt_arg is None:
         # All attempts for this assignment
-        atts = safe_attempts(ctx, numeric_cid, content_id)
+        atts, err = safe_attempts(ctx, numeric_cid, content_id)
         click.secho(f"\n🔍  Attempts - {content_id}\n", fg="cyan", bold=True)
-        if not atts:
+        if atts is None:
+            click.secho(f"  Status read failed: {err}", fg="red")
+            click.secho("  Cannot list attempts for this item.", fg="red")
+        elif not atts:
             click.secho("  No attempts found.", fg="yellow")
         else:
-            for aid, (anum, ts) in atts:
+            for aid, anum, ts in atts:
                 try:
                     det = scrape_attempt_details(ctx, numeric_cid, content_id, aid)
                 except Exception:
@@ -150,8 +173,11 @@ def single_assignment(ctx, session_cookies, numeric_cid,
         sys.exit(1)
 
     # Details of specific attempt
-    atts = safe_attempts(ctx, numeric_cid, content_id)
-    att_map = {a: aid for aid, (a, _) in atts}
+    atts, err = safe_attempts(ctx, numeric_cid, content_id)
+    if atts is None:
+        click.secho(f"Status read failed: {err}", fg="red")
+        sys.exit(1)
+    att_map = {a: aid for aid, a, _ in atts}
     if anum not in att_map:
         click.secho(f"❌  Attempt {anum} not found. Available: {list(att_map.keys())}", fg="red")
         sys.exit(1)
@@ -785,6 +811,7 @@ def submit_cmd(content_id, arg2, arg3, course_id, comment, expected_sha256,
             click.secho(f"✓  Submission successful! {msg}", fg="green")
         else:
             click.secho(f"⚠  {msg}", fg="yellow")
+            sys.exit(1)
     except Exception as e:
         click.secho(f"❌  Submission failed: {e}", fg="red")
         sys.exit(1)

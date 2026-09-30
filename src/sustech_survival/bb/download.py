@@ -289,29 +289,29 @@ def get_assignment_attempts(course_id, column_id):
     """
     Return list of (attempt_id, attempt_num, created_timestamp) for a grade column.
     Uses gradebook REST API — no Playwright.
+    Raises on any REST failure: an empty list means the gradebook answered
+    "no attempts", never "we could not ask".
     """
     sess = session()
     bid = course_id if course_id.startswith("_") else f"_{course_id}_1"
     col_id = column_id if column_id.startswith("_") else f"_{column_id}_1"
-    try:
-        data = api(f"/learn/api/public/v1/courses/{bid}/gradebook/columns/{col_id}/attempts", sess)
-        results = []
-        for i, att in enumerate(data.get("results", [])):
-            results.append((
-                att["id"].lstrip("_"),
-                i + 1,
-                att.get("created", "")[:19].replace("T", " "),
-            ))
-        return results
-    except Exception:
-        return []
+    data = api(f"/learn/api/public/v1/courses/{bid}/gradebook/columns/{col_id}/attempts", sess)
+    results = []
+    for i, att in enumerate(data.get("results", [])):
+        results.append((
+            att["id"].lstrip("_"),
+            i + 1,
+            att.get("created", "")[:19].replace("T", " "),
+        ))
+    return results
 
 
 def discover_attempt_ids(ctx, numeric_cid, content_id):
     """
-    Return list of (attempt_id, (attempt_num, created_timestamp)) for a content item.
+    Return list of (attempt_id, attempt_num, created_timestamp) for a content item.
     Uses gradebook REST API — no Playwright needed for discovery.
     ctx is accepted for API compatibility but not used (REST handles it).
+    Raises when the attempt read fails (see get_assignment_attempts).
     """
     column_id = get_column_id_for_content(numeric_cid, content_id)
     if not column_id:
@@ -415,7 +415,11 @@ def download_submission(course_id, content_id, column_id=None, out_dir=None):
             print(f"⚠ No gradebook column for content {content_id}")
             return []
 
-    attempts = get_assignment_attempts(course_id, column_id)
+    try:
+        attempts = get_assignment_attempts(course_id, column_id)
+    except Exception as e:
+        print(f"⚠ Could not read submission attempts for {content_id}: {e}")
+        return []
     if not attempts:
         print(f"No submission attempts for content {content_id}")
         return []

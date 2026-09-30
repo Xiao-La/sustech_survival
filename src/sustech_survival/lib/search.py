@@ -348,7 +348,7 @@ def search(query: Optional[str] = None, *,
         # SPA renders the result list after the JS bundle runs.
         page.wait_for_selector(
             ".list-item-primary-content.result-item-primary-content",
-            timeout=_net.service_timeout("http"),
+            timeout=_net.page_timeout_ms("library"),
         )
         # Pull out each result row by the canonical selectors.
         items = page.query_selector_all(

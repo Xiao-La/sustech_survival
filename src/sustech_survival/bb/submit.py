@@ -775,6 +775,10 @@ def submit_assignment_rest(
     staged_dir = _cache.cache_path("bb", "submits")
     staged_name = _safe_staged_name(target_name, file_path_p.suffix)
     staged_path = staged_dir / staged_name
+    # Whether the multipart POST has left the machine. The failure paths
+    # report it so a caller never blindly retries a submission that may
+    # already have landed.
+    post_attempted = False
 
     try:
         # R1: preflight — confirm the exact assignment target BEFORE any POST.
@@ -870,13 +874,16 @@ def submit_assignment_rest(
         # 30x as an error is exactly the point.
         sess = _bb_session()
         submit_url = f"{BB_BASE}/webapps/assignment/uploadAssignment?action=submit"
-        files = {
-            "newFile_LocalFile0": (
-                target_name, open(staged_path, "rb"), "application/octet-stream",
-            ),
-        }
-        resp = sess.post(submit_url, data=form_data, files=files, timeout=_net.service_timeout("bb"),
-                         allow_redirects=False)
+        post_attempted = True
+        with open(staged_path, "rb") as fh:
+            resp = sess.post(
+                submit_url,
+                data=form_data,
+                files={"newFile_LocalFile0": (
+                    target_name, fh, "application/octet-stream")},
+                timeout=_net.service_timeout("bb"),
+                allow_redirects=False,
+            )
 
         # R2: a 3xx is NOT auto-followed. Treat as an error so the caller
         # can decide whether to retry by hand.
@@ -886,6 +893,7 @@ def submit_assignment_rest(
                 f"BB submission POST returned redirect "
                 f"{resp.status_code} (not auto-followed); refusing to replay.",
                 reason="redirect_refused",
+                submissionPostSent=True,
                 http_status=resp.status_code,
                 stage="submit_form",
                 upstream={
@@ -918,6 +926,7 @@ def submit_assignment_rest(
         body_preview = _strip_html_for_error(resp.text or "")[:160]
         return failure(
             f"Form POST returned {resp.status_code}: {body_preview}",
+            submissionPostSent=True,
             http_status=resp.status_code,
             stage="submit_form",
             upstream={
@@ -954,7 +963,14 @@ def submit_assignment_rest(
             submissionPostSent=False,
         )
     except Exception as e:
-        return failure(f"REST submit error: {e}", exception_type=type(e).__name__)
+        # A network failure around the POST leaves it unknown whether BB
+        # received the multipart body — report that instead of a bare
+        # failure, so a caller does not retry into a duplicate attempt.
+        return failure(
+            f"REST submit error: {e}",
+            exception_type=type(e).__name__,
+            submissionPostSent=post_attempted,
+        )
 
 
 # -------------------------------------------------------------------------
@@ -1015,6 +1031,7 @@ def _submit_editor_field(content_id: str, *,
     picks the editor field the form actually exposes, and POSTs. R2: one
     POST, no redirects followed. R3: stage + sanitized status on errors.
     """
+    post_attempted = False
     try:
         cid = _num_id(content_id) if content_id else ""
         resolved_course_id: Optional[str] = course_id
@@ -1066,6 +1083,7 @@ def _submit_editor_field(content_id: str, *,
         submit_url = f"{BB_BASE}/webapps/assignment/uploadAssignment?action=submit"
         sess = _bb_session()
         # R2: no follow, no replay.
+        post_attempted = True
         resp = sess.post(submit_url, data=body_data,
                          timeout=_net.service_timeout("bb"),
                          allow_redirects=False)
@@ -1075,6 +1093,7 @@ def _submit_editor_field(content_id: str, *,
                 f"BB {field_kind} submission returned redirect "
                 f"{resp.status_code} (not auto-followed); refusing to replay.",
                 reason="redirect_refused",
+                submissionPostSent=True,
                 http_status=resp.status_code,
                 stage="submit_form",
                 upstream={
@@ -1101,6 +1120,7 @@ def _submit_editor_field(content_id: str, *,
         body_preview = _strip_html_for_error(resp.text or "")[:160]
         return failure(
             f"BB {field_kind} submission POST returned {resp.status_code}: {body_preview}",
+            submissionPostSent=True,
             http_status=resp.status_code,
             stage="submit_form",
             upstream={
@@ -1127,7 +1147,10 @@ def _submit_editor_field(content_id: str, *,
         )
     except Exception as e:
         return failure(f"REST {field_kind} submit error: {e}",
-                       exception_type=type(e).__name__)
+                       exception_type=type(e).__name__,
+                       submissionPostSent=post_attempted)
+
+
 def _core_id_safe(value: str) -> str:
     """Wrap query._core_id with the same import surface used elsewhere."""
     from .query import _core_id
@@ -1234,6 +1257,8 @@ def check_attempts(content_id, course_id=None):
 
     REST-based: resolves the course, looks up the gradebook column and
     lists attempts via the gradebook API — no browser.
+    attempt_count is None when the attempt read failed; it is never a
+    silent 0, which would read as "not submitted".
     """
     from sustech_survival.bb.download import (
         resolve_course, get_assignment_attempts,
@@ -1254,7 +1279,13 @@ def check_attempts(content_id, course_id=None):
         pass
 
     column_id = get_column_id_for_content(cid, content)
-    attempts = get_assignment_attempts(cid, column_id) if column_id else []
+    if not column_id:
+        return 0, assignment_name
+    try:
+        attempts = get_assignment_attempts(cid, column_id)
+    except Exception:
+        # A failed read must never come back as "0 attempts".
+        return None, assignment_name
     return len(attempts), assignment_name
 
 
@@ -1267,7 +1298,7 @@ def get_attempt_info(course_id, content_id):
     Playwright implementation).
     """
     count, name = check_attempts(content_id, course_id=course_id)
-    return count, name, True
+    return count, name, count is not None
 
 
 class SubmissionNotConfirmedError(Exception):
