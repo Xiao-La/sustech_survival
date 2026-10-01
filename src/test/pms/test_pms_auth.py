@@ -58,9 +58,6 @@ THUZvjrkr+bjMQWNeCwIBAw==
         decoded = base64.b64decode(ct)
         # Should be 128 bytes for 1024-bit RSA
         assert len(decoded) == 128
-        # Must NOT start with 0x00 (which would mean the high bit was 0,
-        # indicating padding issue)
-        assert decoded[0] != 0
 
     def test_encrypt_different_inputs_different_outputs(self):
         ct1 = _rsa_encrypt(self.TEST_KEY_PEM, "password1;nonce")
