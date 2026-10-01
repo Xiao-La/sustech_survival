@@ -12,7 +12,10 @@ from typing import Optional
 from .models import Paper
 from .openaccess import resolve_oa_pdf
 
-DOWNLOAD_TIMEOUT = _net.HTTP_DEFAULT  # central default (config.json "timeouts")
+# The download budget is resolved per call from the central tree
+# (``_net.service_timeout("papers")``). It used to be frozen into this constant
+# *and* into ``fetch_pdf``'s signature, so a config.json change — or a
+# ``services.papers.http`` override — could never reach it.
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 HEADERS = {"User-Agent": USER_AGENT}
 
@@ -49,18 +52,23 @@ def is_pdf_content(r: requests.Response) -> bool:
     return False
 
 
-def fetch_pdf(paper: Paper, dest_dir: str | Path, timeout: int = DOWNLOAD_TIMEOUT) -> Optional[Path]:
+def fetch_pdf(paper: Paper, dest_dir: str | Path,
+              timeout: float | None = None) -> Optional[Path]:
     """
     Download the OA PDF for a paper.
 
     Args:
         paper: Paper object with doi and pdf_url populated
         dest_dir: Directory to save PDF
-        timeout: Download timeout in seconds
+        timeout: Download timeout in seconds; ``None`` resolves the central
+            budget for ``papers`` at call time (config.json / env), so an
+            operator's change is honored without re-importing.
 
     Returns:
         Path to downloaded PDF, or None if failed
     """
+    if timeout is None:
+        timeout = _net.service_timeout("papers")
     dest_dir = Path(dest_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
 

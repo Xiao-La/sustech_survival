@@ -88,6 +88,11 @@ SERVICE_CALL = re.compile(
 # per-service override never applies.
 SECTION_KEYS = frozenset({"http", "login", "page", "default", "timeouts", "services"})
 
+# A budget copied into a module constant, or into a default argument, is frozen:
+# Python evaluates both once, so config.json edits can never reach them.
+FROZEN_CONSTANT = re.compile(r"^\s*[A-Z][A-Z0-9_]*\s*(?::[^=]+)?=\s*_net\.", re.M)
+FROZEN_DEFAULT = re.compile(r"def [^(]*\([^)]*=\s*_net\.[^)]*\)", re.S)
+
 
 def _documented_services() -> set[str]:
     """Service names from the "Services in use:" block of _net's docstring."""
@@ -259,6 +264,30 @@ def test_service_vocabulary_matches_the_doc():
     unused = sorted(documented - used)
     assert not undocumented, f"service names missing from _net's doc list: {undocumented}"
     assert not unused, f"documented service names nothing uses: {unused}"
+
+
+def test_no_budget_is_frozen_at_import_time():
+    """A budget in a constant or a default argument can never see config.json.
+
+    Python evaluates both once — the constant at import, the default at ``def``
+    time — while :mod:`_net` reads the config when a request is made.
+    papers/fetch.py did both: ``DOWNLOAD_TIMEOUT = _net.HTTP_DEFAULT`` fed
+    ``fetch_pdf(timeout=DOWNLOAD_TIMEOUT)``, so a ``services.papers.http``
+    override could not reach a download.
+    """
+    offenders = []
+    for path in sorted(SRC.rglob("*.py")):
+        if path.name == "_net.py":
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        rel = _rel(path)
+        for match in FROZEN_CONSTANT.finditer(text):
+            lineno = text.count("\n", 0, match.start()) + 1
+            offenders.append(f"constant: {rel}:{lineno}: {match.group(0).strip()}")
+        for match in FROZEN_DEFAULT.finditer(text):
+            lineno = text.count("\n", 0, match.start()) + 1
+            offenders.append(f"default-arg: {rel}:{lineno}: {match.group(0)[:80]}")
+    assert not offenders, "budgets frozen at import time:\n" + "\n".join(offenders)
 
 
 def test_browser_wait_exemptions_are_live():
