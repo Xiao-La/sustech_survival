@@ -3,6 +3,8 @@ import sys
 sys.path.insert(0, "src")
 from playwright.sync_api import sync_playwright
 
+from .. import _net
+
 # Singleton Playwright/browser — keep alive across calls
 browser_singleton = None
 ctx_singleton = None
@@ -24,7 +26,7 @@ def login_to_wos():
     """
     ctx = get_browser()
     page = ctx.new_page()
-    page.set_default_timeout(30000)
+    page.set_default_timeout(_net.page_timeout_ms("papers"))
 
     from sustech_survival.sso import Authorizer
     _auth = Authorizer()
@@ -108,7 +110,7 @@ def search_wos(query, max_results=10):
     """
     ctx = get_browser()
     page = ctx.new_page()
-    page.set_default_timeout(30000)
+    page.set_default_timeout(_net.page_timeout_ms("papers"))
 
     page.goto("https://webofscience.clarivate.cn/wos/woscc/basic-search/basic",
                wait_until="domcontentloaded", timeout=30000)
@@ -165,7 +167,7 @@ def get_article_html(doi):
     """
     ctx = get_browser()
     page = ctx.new_page()
-    page.set_default_timeout(20000)
+    page.set_default_timeout(_net.page_timeout_ms("papers"))
     url = f"https://webofscience.clarivate.cn/wos/woscc/article/{doi}"
     page.goto(url, wait_until="domcontentloaded")
     page.wait_for_timeout(5000)
