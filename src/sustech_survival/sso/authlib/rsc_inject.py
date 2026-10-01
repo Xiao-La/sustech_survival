@@ -1,6 +1,8 @@
 """Inject an in-memory RSC authorizer session into a browser context."""
 import sys
 
+from ... import _net
+
 def load_rsc_session(cookie_path: str = None) -> list:
     """Return authorizer cookies for Playwright without reading session files."""
     if cookie_path is not None:
@@ -40,7 +42,7 @@ def test_with_playwright(cookie_path: str = None) -> bool:
         ctx.add_cookies(cookies)
 
         page = ctx.new_page()
-        page.goto("https://pubs.rsc.org/", timeout=30000, wait_until="domcontentloaded")
+        page.goto("https://pubs.rsc.org/", timeout=_net.page_timeout_ms("rsc_inject"), wait_until="domcontentloaded")
         page.wait_for_timeout(2000)
 
         url = page.url
@@ -60,7 +62,7 @@ def test_with_playwright(cookie_path: str = None) -> bool:
             # Test search
             page.goto(
                 "https://pubs.rsc.org/en/search?q=machine+learning+catalysis",
-                timeout=30000,
+                timeout=_net.page_timeout_ms("rsc_inject"),
                 wait_until="networkidle"
             )
             print(f"Search URL: {page.url}", flush=True)
