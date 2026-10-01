@@ -188,7 +188,7 @@ def fetch_weather() -> Optional[dict]:
 
         url = "https://api.sustech.online/weather"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=_net.service_timeout("http")) as resp:
+        with urllib.request.urlopen(req, timeout=_net.service_timeout("context")) as resp:
             data = json.load(resp)
 
         raw = data.get("msg", "")
@@ -232,7 +232,7 @@ def fetch_library_status() -> str:
             "https://lib.sustech.edu.cn/",
             headers={"User-Agent": "Mozilla/5.0"},
         )
-        with urllib.request.urlopen(req, timeout=_net.service_timeout("http")) as resp:
+        with urllib.request.urlopen(req, timeout=_net.service_timeout("library")) as resp:
             html = resp.read().decode("utf-8")
 
         rooms = re.findall(
@@ -379,7 +379,7 @@ def slot_times(zc: int) -> dict:
         resp = session.post(
             'https://tis.sustech.edu.cn/component/queryKbjg',
             data={'xn': sem.xn, 'xq': sem.xq, 'zc': str(zc)},
-            timeout=_net.service_timeout("http"),
+            timeout=_net.service_timeout("tis"),
         )
         content = resp.json().get('content', [])
         return {int(e['xj']): (e['kssj'], e['jssj']) for e in content}

@@ -120,7 +120,7 @@ class LibBookingAuth(CASAuthorizer):
                 "manager": "false",
                 "consoleType": "16",
             },
-            timeout=_net.service_timeout("http"),
+            timeout=_net.service_timeout("booking"),
         )
         if _looks_off_campus(r):
             raise AuthorizerError(OFF_CAMPUS_HINT)
@@ -136,7 +136,7 @@ class LibBookingAuth(CASAuthorizer):
                 f"auth/address returned unexpected URL: {auth_url[:200]}"
             )
 
-        r = sess.get(auth_url, allow_redirects=False, timeout=_net.service_timeout("http"))
+        r = sess.get(auth_url, allow_redirects=False, timeout=_net.service_timeout("booking"))
         if r.status_code not in (301, 302):
             raise AuthorizerError(
                 f"authcenter/toLoginPage expected 302, got {r.status_code}"
@@ -246,7 +246,7 @@ class LibBookingAuth(CASAuthorizer):
         sess = self.session
         sess.headers["User-Agent"] = UA
         try:
-            r = sess.get(f"{BOOKING_API}/auth/userInfo", timeout=_net.service_timeout("http"))
+            r = sess.get(f"{BOOKING_API}/auth/userInfo", timeout=_net.service_timeout("booking"))
             if r.status_code != 200:
                 return None
             body = r.json()

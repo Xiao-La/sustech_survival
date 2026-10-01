@@ -1001,7 +1001,7 @@ def _decode_and_cache(
 
 def _fetch_json(url: str) -> dict:
     try:
-        with urllib.request.urlopen(url, timeout=_net.service_timeout("http")) as resp:
+        with urllib.request.urlopen(url, timeout=_net.service_timeout("calendar")) as resp:
             data = resp.read()
     except urllib.error.HTTPError as e:
         if e.code == 404:

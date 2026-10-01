@@ -78,6 +78,26 @@ def _rel(path: pathlib.Path) -> str:
     return str(path.relative_to(SRC)).replace("\\", "/")
 
 
+# Any call that names a service: _net.service_timeout("tis"), the bound method
+# form _net.timeouts().service_timeout("tis"), and the page equivalents.
+SERVICE_CALL = re.compile(
+    r'_net\.(?:timeouts\(\)\.)?(?:service_timeout|service_login_timeout'
+    r'|page_timeout_ms|page_timeout)\("([A-Za-z_-]+)"\)'
+)
+# Section keys. In the service slot they resolve to the section default, so a
+# per-service override never applies.
+SECTION_KEYS = frozenset({"http", "login", "page", "default", "timeouts", "services"})
+
+
+def _documented_services() -> set[str]:
+    """Service names from the "Services in use:" block of _net's docstring."""
+    doc = _net.__doc__ or ""
+    marker = "Services in use:"
+    assert marker in doc, "sustech_survival._net lost its 'Services in use:' doc block"
+    block = doc.split(marker, 1)[1].split("\n\n", 1)[0]
+    return {name for name in re.split(r"[,\s]+", block) if name}
+
+
 def _enclosing_call(text: str, offset: int) -> str:
     """Text of the call head whose parentheses enclose ``offset``.
 
@@ -203,6 +223,42 @@ def test_no_module_hardcodes_a_request_timeout():
         for kind, lineno, text in _scan(path):
             offenders.append(f"{kind}: {_rel(path)}:{lineno}: {text[:90]}")
     assert not offenders, "hardcoded timeouts:\n" + "\n".join(offenders)
+
+
+def test_no_section_key_is_used_as_a_service_name():
+    """`service_timeout("http")` silently means "section default".
+
+    A section key in the service slot makes ``services.<name>`` unreachable —
+    the operator sets ``services.tis.http = 90`` and the call still uses the
+    180 s section default.
+    """
+    offenders = []
+    for path in sorted(SRC.rglob("*.py")):
+        for match in SERVICE_CALL.finditer(path.read_text(encoding="utf-8", errors="replace")):
+            if match.group(1) in SECTION_KEYS:
+                offenders.append(f"{_rel(path)}: {match.group(1)}")
+    assert not offenders, (
+        "a section key was passed where a service name belongs:\n" + "\n".join(offenders)
+    )
+
+
+def test_service_vocabulary_matches_the_doc():
+    """Every service name in use is documented in _net, and vice versa.
+
+    The doc block is the vocabulary an operator reads before writing
+    ``services.<name>``; a name that only exists in code is a name they cannot
+    discover.
+    """
+    used: set[str] = set()
+    for path in sorted(SRC.rglob("*.py")):
+        for match in SERVICE_CALL.finditer(path.read_text(encoding="utf-8", errors="replace")):
+            used.add(match.group(1))
+
+    documented = _documented_services()
+    undocumented = sorted(used - documented)
+    unused = sorted(documented - used)
+    assert not undocumented, f"service names missing from _net's doc list: {undocumented}"
+    assert not unused, f"documented service names nothing uses: {unused}"
 
 
 def test_browser_wait_exemptions_are_live():

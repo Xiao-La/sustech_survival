@@ -35,6 +35,15 @@ same unit (seconds) and converted to milliseconds for Playwright at the call
 site via :func:`page_timeout_ms` — the tree stays human-editable, no caller
 hardcodes a millisecond literal.
 
+Services in use: acs, bb, booking, calendar, cnki, context, ehall, faculty,
+ieee, jstor, library, mirror, nces, papers, pms, pubmed, rsc, scopus,
+springer, sso, tis, transit, wiley, wos, ws
+
+The name is the subsystem that owns the request — it is what an operator writes
+as ``services.<name>``. A *section* key (``http``, ``login``, ``page``) is never
+a service name: passing one resolves to the section default and makes the
+per-service override unreachable.
+
 Legacy flat keys from earlier versions are still honored and folded into the
 tree: ``cas_login`` → ``login.default``, ``cas_attempts`` → ``login.attempts``,
 ``tis`` → ``services.tis.http`` — so existing config files keep working.

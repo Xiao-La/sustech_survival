@@ -42,7 +42,7 @@ def test_with_playwright(cookie_path: str = None) -> bool:
         ctx.add_cookies(cookies)
 
         page = ctx.new_page()
-        page.goto("https://pubs.rsc.org/", timeout=_net.page_timeout_ms("rsc_inject"), wait_until="domcontentloaded")
+        page.goto("https://pubs.rsc.org/", timeout=_net.page_timeout_ms("rsc"), wait_until="domcontentloaded")
         page.wait_for_timeout(2000)
 
         url = page.url
@@ -62,7 +62,7 @@ def test_with_playwright(cookie_path: str = None) -> bool:
             # Test search
             page.goto(
                 "https://pubs.rsc.org/en/search?q=machine+learning+catalysis",
-                timeout=_net.page_timeout_ms("rsc_inject"),
+                timeout=_net.page_timeout_ms("rsc"),
                 wait_until="networkidle"
             )
             print(f"Search URL: {page.url}", flush=True)

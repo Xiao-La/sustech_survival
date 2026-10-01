@@ -72,9 +72,9 @@ def _get_json(auth, url: str, *, post_data: Optional[dict] = None) -> dict:
     """GET/POST a TIS endpoint and return JSON, or {} on any failure."""
     try:
         if post_data is not None:
-            r = auth.post(url, data=post_data, timeout=_net.service_timeout("http"))
+            r = auth.post(url, data=post_data, timeout=_net.service_timeout("tis"))
         else:
-            r = auth.get(url, timeout=_net.service_timeout("http"))
+            r = auth.get(url, timeout=_net.service_timeout("tis"))
         if r.status_code != 200:
             return {}
         return r.json() or {}
