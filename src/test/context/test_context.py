@@ -12,11 +12,13 @@ Covers:
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from unittest.mock import patch
 
 import pytest
 
+from sustech_survival import context as context_module
+from sustech_survival.calendar import AcademicCalendar
 from sustech_survival.context import (
     CHINA_TZ,
     ACADEMIC_CALENDARS,
@@ -33,6 +35,11 @@ from sustech_survival.context import (
     is_holiday,
     now_,
 )
+
+
+# The academic calendar is pinned for this whole directory by conftest.py:
+# raw.githubusercontent.com took 21-64 s per file from this machine, and a
+# failed load left nothing cached, so each test paid for it again.
 
 
 # --- Construction & level handling -----------------------------------------
@@ -79,7 +86,7 @@ def test_sync_fields_with_unix_time():
     assert ctx.time_24h == "14:30"
 
 
-def test_holiday_field_returns_known_holiday():
+def test_holiday_field_returns_known_holiday(pinned_2026_calendar):
     fixed = datetime(2026, 5, 1, 12, 0, tzinfo=CHINA_TZ)
     ctx = Context(level="terse", dt=fixed)
     # Name comes from the academic calendar (校历), not an English snapshot.
@@ -303,9 +310,48 @@ def test_get_academic_info_outside_semester():
     assert "Vacation" in phase_str or "Vacation" in label
 
 
-def test_is_holiday_known_date():
+def test_is_holiday_known_date(pinned_2026_calendar):
     fixed = datetime(2026, 5, 1, 12, 0, tzinfo=CHINA_TZ)
     assert is_holiday(fixed) == "劳动节"   # name from the academic calendar
+
+
+def test_previous_year_calendar_does_not_answer_for_a_spring_date(monkeypatch, make_calendar):
+    """A failed fetch for the date's own year must not borrow another year.
+
+    Regression: 2026-05-01 came back as "" (no holiday) because the 2025
+    calendar — which knows nothing about 2026 — was returned when the 2026 fetch
+    failed. That case now yields None, so the bundled snapshot is used instead.
+    """
+    saved = dict(context_module._CALENDAR_CACHE)
+    context_module._CALENDAR_CACHE.clear()
+
+    def fake_load(year, *args, **kwargs):
+        if year == 2026:
+            raise RuntimeError("calendar unavailable")
+        return make_calendar(2025)
+
+    monkeypatch.setattr(
+        "sustech_survival.calendar.AcademicCalendar.load", staticmethod(fake_load)
+    )
+    try:
+        assert context_module._calendar_for(date(2026, 5, 1)) is None
+        # January does belong to the previous academic year's fall term.
+        assert context_module._calendar_for(date(2026, 1, 5)) is not None
+    finally:
+        context_module._CALENDAR_CACHE.clear()
+        context_module._CALENDAR_CACHE.update(saved)
+
+
+@pytest.mark.live
+def test_holiday_name_comes_from_the_real_calendar():
+    """The live 校历 payload spells 2026-05-01 劳动节 (network; live-marked)."""
+    saved = dict(context_module._CALENDAR_CACHE)
+    context_module._CALENDAR_CACHE.clear()
+    try:
+        assert is_holiday(datetime(2026, 5, 1, 12, 0, tzinfo=CHINA_TZ)) == "劳动节"
+    finally:
+        context_module._CALENDAR_CACHE.clear()
+        context_module._CALENDAR_CACHE.update(saved)
 
 
 def test_is_holiday_normal_weekday():

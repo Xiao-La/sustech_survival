@@ -258,7 +258,14 @@ def _calendar_for(d: date):
     """The ``AcademicCalendar`` covering ``d``, or None when it can't be loaded.
 
     Tries the date's own year, then the academic-year start — a fall term that
-    runs into January is filed under the previous calendar year.
+    runs into January is filed under the previous calendar year, so January and
+    February dates may legitimately belong to ``d.year - 1``.
+
+    The previous year's calendar is only accepted for those Jan/Feb dates. A
+    calendar answers for whatever date it is handed, so returning it
+    unconditionally turned "the 2026 calendar could not be fetched" into a
+    confident "no holiday here" for a 2026 date — and left the bundled
+    ``HOLIDAY_DATA`` snapshot, the intended fallback, unused.
     """
     from sustech_survival.calendar import AcademicCalendar
     for year in (d.year, d.year - 1):
@@ -267,7 +274,8 @@ def _calendar_for(d: date):
                 _CALENDAR_CACHE[year] = AcademicCalendar.load(year)
             except Exception:
                 continue          # not cached — a transient failure may retry
-        return _CALENDAR_CACHE[year]
+        if year == d.year or d.month <= 2:
+            return _CALENDAR_CACHE[year]
     return None
 
 
