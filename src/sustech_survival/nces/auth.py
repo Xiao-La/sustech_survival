@@ -61,7 +61,7 @@ class NCESAuth(CASAuthorizer):
     """CAS SSO for NCES via Keycloak OIDC + cas-proxy.cra.moe.
 
     Subclasses CASAuthorizer (same pattern as TISAuth, BBAuth).
-    Reads credentials from <skill_root>/credentials.txt.
+    Reads credentials through the shared SSO resolver.
 
     Usage:
         auth = NCESAuth()

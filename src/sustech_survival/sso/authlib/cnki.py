@@ -18,6 +18,7 @@ from ... import _net
 # =============================================================================
 
 from pathlib import Path
+from ..authorizer import AuthorizerError
 from ..providers.shibboleth import ShibbolethAuthorizer
 CNKI_BASE = "https://www.cnki.net"
 CNKI_FSSO = "https://fsso.cnki.net/Shibboleth.sso/Login"
@@ -46,13 +47,11 @@ class CNKIAuth(ShibbolethAuthorizer):
 
         # Load credentials
         if not username or not password:
-            cf = Path(self._creds_file)
-            if cf.exists():
-                line = cf.read_text().strip()
-                if ':' in line:
-                    username, password = line.split(':', 1)
-                    username = username.strip()
-                    password = password.strip()
+            try:
+                username, password = self._read_creds()
+            except AuthorizerError:
+                print("⚠ CNKI credentials not found in credentials.txt")
+                return False
 
         if not username or not password:
             print("⚠ CNKI credentials not found in credentials.txt")

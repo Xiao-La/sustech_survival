@@ -105,7 +105,7 @@ set SUSTECH_HOME=path/to/sustech/home
 ### 3. Authentication
 
 ```bash
-sustech sso creds set --sid 12410000 --password your-password-here
+sustech sso creds set --sid 12410000
 ```
 
 
@@ -125,8 +125,9 @@ directory anymore; the home dot-directory is the single on-disk default.
 
 
 ```python
+from getpass import getpass
 from sustech_survival import sso
-sso.cred_set(sid="12410000", pwd="your-password-here")   # in-memory
+sso.cred_set(sid="12410000", pwd=getpass("CAS password: "))   # in-memory
 ```
 
 The following command writes the default credentials file
@@ -134,8 +135,8 @@ The following command writes the default credentials file
 that environment variable is set):
 
 ```bash
-sustech sso creds set --sid 12410000 --pass 'your-password-here'
-# (omit --pass to prompt, hidden; --password also works)
+sustech sso creds set --sid 12410000
+# Enter the password at the hidden prompt; do not put it in shell history.
 ```
 
 Already installed and want to confirm the creds work before a real call:

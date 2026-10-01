@@ -25,7 +25,6 @@
 
 from sustech_survival import _net
 import json
-from pathlib import Path
 from typing import Optional, Tuple
 
 import requests
@@ -163,13 +162,7 @@ class PMSAuth(Authorizer):
         """
         from playwright.sync_api import sync_playwright
 
-        cf = Path(self._creds_file)
-        if not cf.exists():
-            raise AuthorizerError(f"No credentials at {cf}")
-        line = cf.read_text().strip()
-        if ":" not in line:
-            raise AuthorizerError("credentials.txt malformed (no ':' separator)")
-        username, password = [s.strip() for s in line.split(":", 1)]
+        username, password = self._read_creds()
 
         pw = sync_playwright().start()
         browser = pw.chromium.launch(headless=headless)

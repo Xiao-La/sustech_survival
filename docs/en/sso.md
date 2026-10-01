@@ -17,7 +17,7 @@
 ### ❌ Never Do
 - **Do not navigate to `cas.sustech.edu.cn` manually in a browser** — it has a hidden reCAPTCHA that blocks automation
 - **Do not store session cookies to disk** — in-memory only, no `session.json` writes
-- **Do not ask the user for credentials in plaintext** — always read from `credentials.txt`
+- **Do not ask the user for credentials in plaintext** — let the authorizer use the configured source; agents must not open the credential file themselves
 - **Do not try to automate the CAS login page with Playwright** — the captcha will silently block you
 
 ### 🔑 Quick Reference
@@ -53,18 +53,17 @@ session = auth.requests_session  # REMOVED — use auth.session
 ```python
 from sustech_survival.sso import TISAuth
 auth = TISAuth()
-auth.username   # your SUSTech student ID
-auth.password   # CAS password
+ok, reason = auth.ensure()
 ```
 
-Reads credentials via `auth.username` / `auth.password` properties, which call `_read_creds()` internally. Resolution order: `cred_set()` in memory → `SUSTECH_CREDENTIALS` env var → `~/.sustech_survival/credentials.txt` (the project's home default; relocated with `$SUSTECH_HOME`). Format: `sid:password`
+The authorizer reads credentials internally. Resolution order: `cred_set()` in memory → `SUSTECH_CREDENTIALS` env var → `~/.sustech_survival/credentials.txt` (the project's home default; relocated with `$SUSTECH_HOME`). Format: `sid:password`. Do not print or log `auth.password`.
 
 ## Setting Up Credentials
 
-Create a `credentials.txt` file with one line:
+Set credentials from an interactive terminal so the password is hidden:
 
-```
-YOUR_SID:your_password
+```bash
+sustech sso creds set --sid YOUR_SID
 ```
 
 Pick any of these locations (first match wins):
@@ -74,13 +73,10 @@ Pick any of these locations (first match wins):
 | 1 | `$SUSTECH_CREDENTIALS` env var (path to file) | CI, containers, agents |
 | 2 | `~/.sustech_survival/credentials.txt` (default; `$SUSTECH_HOME` relocates) | Shared across projects (recommended) |
 
-Create `credentials.txt` in the repo root:
-
-```bash
-# Edit credentials.txt — replace YOUR_PASSWORD with your CAS password
-```
-
-`credentials.txt` is in `.gitignore` — it will never be committed. Sessions are kept **in memory only** — no session data is written to disk.
+The repository root is not a credential lookup location. The CLI writes the
+credential file with owner-only permissions; sessions stay in memory. A
+same-user agent with unrestricted file access can still read the file, so file
+permissions do not isolate credentials from that agent.
 
 ### Verifying credentials
 

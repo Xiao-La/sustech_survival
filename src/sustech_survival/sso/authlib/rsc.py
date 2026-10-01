@@ -47,10 +47,8 @@ class RSCAuthorizer(ShibbolethAuthorizer):
 
     @property
     def creds(self):
-        """Return (username, password) via Credentials class."""
-        from sustech_survival.sso import Credentials
-        c = Credentials()
-        return c.username, c.password
+        """Return the credentials resolved by the shared authorizer."""
+        return self._read_creds()
 
     def find_institution_link(self, page):
         """

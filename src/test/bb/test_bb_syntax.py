@@ -1,7 +1,7 @@
 import ast, pytest
 from pathlib import Path
 
-SRC = Path(__file__).parents[2] / "sustech_survival" / "bb"
+SRC = Path(__file__).resolve().parents[2] / "sustech_survival" / "bb"
 
 
 class TestSyntaxClean:

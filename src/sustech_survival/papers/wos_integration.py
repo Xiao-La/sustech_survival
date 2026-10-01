@@ -1,14 +1,7 @@
-import sys, json, time
+import sys
 
-from .. import _net
-from pathlib import Path
 sys.path.insert(0, "src")
-# Resolve skill root from this file's location (independent of install path).
-# Works from any install location (editable install, wheel, source tree, etc.).
-skill_dir = str(Path(__file__).resolve().parent.parent.parent.parent)
 from playwright.sync_api import sync_playwright
-
-SESSION_FILE = f"{skill_dir}/bb/wos_session.json"
 
 # Singleton Playwright/browser — keep alive across calls
 browser_singleton = None
@@ -38,27 +31,27 @@ def login_to_wos():
     username, password = _auth.read_creds()
 
     page.goto("https://www.webofscience.com/wos/woscc/summary/basic",
-               wait_until="domcontentloaded", timeout=_net.page_timeout_ms("papers"))
+               wait_until="domcontentloaded", timeout=30000)
     page.wait_for_timeout(8000)
     print(f"[WoS] Global site: {page.url[:60]}")
 
     try:
-        page.get_by_text("Accept all").click(timeout=_net.page_timeout_ms("papers"))
+        page.get_by_text("Accept all").click(timeout=3000)
     except:
         pass
 
-    page.locator('mat-select[aria-label="Institution"]').click(timeout=_net.page_timeout_ms("papers"))
+    page.locator('mat-select[aria-label="Institution"]').click(timeout=5000)
     page.wait_for_timeout(2000)
-    page.get_by_text("CHINA CERNET Federation", exact=True).click(timeout=_net.page_timeout_ms("papers"))
+    page.get_by_text("CHINA CERNET Federation", exact=True).click(timeout=5000)
     page.wait_for_timeout(1000)
-    page.get_by_text("Go to institution").click(timeout=_net.page_timeout_ms("papers"))
+    page.get_by_text("Go to institution").click(timeout=5000)
     print("[WoS] Selected institution")
 
     try:
-        page.wait_for_url("**ds.carsi.edu.cn**", timeout=_net.page_timeout_ms("papers"))
+        page.wait_for_url("**ds.carsi.edu.cn**", timeout=20000)
     except Exception:
         try:
-            page.wait_for_url("**carsi.edu.cn**", timeout=_net.page_timeout_ms("papers"))
+            page.wait_for_url("**carsi.edu.cn**", timeout=10000)
         except Exception:
             print(f"[WoS] ⚠ Not redirected to CARSI: {page.url[:60]}")
 
@@ -77,11 +70,10 @@ def login_to_wos():
     print("[WoS] Injected SUSTech entityID")
 
     try:
-        page.wait_for_url("**cas.sustech.edu.cn**", timeout=_net.page_timeout_ms("papers"))
+        page.wait_for_url("**cas.sustech.edu.cn**", timeout=30000)
     except Exception:
         if "webofknowledge" in page.url or "webofscience" in page.url:
             print("[WoS] → Already authenticated, session active")
-            save_session(ctx)
             return True
         print(f"[WoS] ⚠ Not at CAS: {page.url[:60]}")
         return False
@@ -105,7 +97,6 @@ def login_to_wos():
         page.wait_for_timeout(6000)
 
     print(f"[WoS] ✅ Logged in: {page.url[:70]}")
-    save_session(ctx)
     page.close()
     return True
 
@@ -120,7 +111,7 @@ def search_wos(query, max_results=10):
     page.set_default_timeout(30000)
 
     page.goto("https://webofscience.clarivate.cn/wos/woscc/basic-search/basic",
-               wait_until="domcontentloaded", timeout=_net.page_timeout_ms("papers"))
+               wait_until="domcontentloaded", timeout=30000)
     page.wait_for_timeout(8000)
     print(f"[WoS Search] URL: {page.url[:60]}")
 
@@ -181,12 +172,6 @@ def get_article_html(doi):
     html = page.content()
     page.close()
     return html
-
-
-def save_session(ctx):
-    cookies = {c['name']: c['value'] for c in ctx.cookies()}
-    with open(SESSION_FILE, "w") as f:
-        json.dump(cookies, f)
 
 
 if __name__ == "__main__":

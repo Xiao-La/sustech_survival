@@ -38,9 +38,10 @@ VIOLATIONS: list[tuple[str, str, str]] = [
     # distinguish real code from docstring mentions.
     ("home-path", r'Path\.home\s*\(\s*\)\s*/',
      "Path.home()/ — breaks on non-default HOME. Use sustech_survival._cache.config_root()."),
-    # session.json literal in code (not comments) — disk-persisted sessions are
-    # the anti-pattern
-    ("session-json", r'["\']session\.json["\']',
+    # Any session JSON literal in code (not comments) — disk-persisted sessions
+    # are the anti-pattern. The name is allowed to vary (bb/wos_session.json was
+    # one real case), so the pattern matches any *session*.json literal.
+    ("session-json", r'["\'][^"\']*session[^"\']*\.json["\']',
      "session.json disk persistence — use Authorizer in-memory TTL (iron law #12)"),
 ]
 
@@ -51,10 +52,6 @@ EXEMPTIONS: dict[str, tuple[frozenset[str] | None, str]] = {
     "sso/authorizer.py": (
         None,
         "The one accessor — _read_creds, _resolve_skill_dir, _creds_file",
-    ),
-    "sso/authlib/rsc_inject.py": (
-        frozenset({"session-json"}),
-        "Legacy Playwright cookie bridge — prefers Authorizer in-memory, falls back to file",
     ),
     "lib/booking/auth.py": (
         frozenset({"session-json"}),
