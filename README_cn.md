@@ -116,15 +116,16 @@ def my_function(auth=None):
 格式：`学号:密码`。会话仅保存在**内存中** —— 不写 `session.json` 到磁盘。
 
 ```python
+from getpass import getpass
 from sustech_survival import sso
-sso.cred_set(sid="12410000", pwd="your-password-here")   # 内存中，优先级最高
+sso.cred_set(sid="12410000", pwd=getpass("CAS password: "))   # 内存中，优先级最高
 ```
 
 **从 GitHub 安装后，包内并不会自带凭据文件** —— 运行时不会打包 `credentials.txt`。一条命令即可配置（默认写入 `~/.sustech_survival/credentials.txt`；如果设置了 `SUSTECH_CREDENTIALS`，则写到该路径，权限 600）：
 
 ```bash
-sustech sso creds set --sid 12410000 --pass 'your-password-here'
-# （省略 --pass 会以隐藏方式提示输入；--password 也是别名）
+sustech sso creds set --sid 12410000
+# 在隐藏输入提示中填写密码，不要把密码写进命令历史。
 ```
 
 已安装并想先确认凭据可用（不做真实操作）：

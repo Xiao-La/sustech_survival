@@ -8,7 +8,7 @@ Playwright headful login only when headless refresh fails.
 
 Usage:
     python3 login.py
-    # Reads credentials from <skill_root>/credentials.txt
+    # Reads credentials via the shared SSO resolver
 
 Public auth API lives in :mod:`sustech_survival.sso`. ``ensure()`` is the
 recommended entry point — it checks the session and refreshes

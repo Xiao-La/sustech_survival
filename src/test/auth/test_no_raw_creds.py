@@ -5,8 +5,6 @@ file directly. This test greps the source tree for violations.
 
 Allowed exemptions (listed explicitly below):
   - ``sso/authorizer.py`` — the one accessor (``_read_creds``, ``_resolve_skill_dir``)
-  - ``sso/authlib/rsc_inject.py`` — has a legacy FILE fallback for Playwright
-    cookie injection, but prefers the Authorizer in-memory session first
   - ``lib/booking/auth.py`` — ``_save_session`` / ``refresh_from_disk`` are
     no-op stubs for backward compat (do NOT persist to disk)
   - ``bb/session.py`` — ``SESSION_FILE`` constant is vestigial; auth goes
@@ -28,7 +26,6 @@ SRC_DIR = Path(__file__).resolve().parents[2] / "sustech_survival"
 # Each entry is (relative_path, reason).
 EXEMPTIONS: dict[str, str] = {
     "sso/authorizer.py": "The one accessor — _read_creds, _resolve_skill_dir, _creds_file",
-    "sso/authlib/rsc_inject.py": "Legacy Playwright cookie bridge — prefers Authorizer in-memory, falls back to file",
     "lib/booking/auth.py": "_save_session/refresh_from_disk are no-op stubs for backward compat",
     "bb/session.py": "SESSION_FILE is vestigial, marked # legacy; auth goes through BBAuth",
     "bb/download.py": "Uses ~/Downloads for file output — not credentials/auth",
@@ -45,8 +42,8 @@ VIOLATIONS: list[tuple[str, str]] = [
     # Path.home() followed by / — breaks on non-default HOME.
     # Regex requires the trailing / to distinguish actual code from docstring mentions.
     (r'Path\.home\s*\(\s*\)\s*/', "Path.home()/ — breaks on non-default HOME. Use package-relative resolution."),
-    # session.json literal in code (not comments) — disk-persisted sessions are the anti-pattern
-    (r'["\']session\.json["\']', 'session.json disk persistence — use Authorizer in-memory TTL (iron law #12)'),
+    # Also catch names such as wos_session.json; only legacy readers are exempted.
+    (r'["\'][^"\']*session[^"\']*\.json["\']', 'session JSON disk persistence — use Authorizer in-memory TTL (iron law #12)'),
 ]
 
 

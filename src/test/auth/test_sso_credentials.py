@@ -7,6 +7,7 @@ monkeypatched SUSTECH_CREDENTIALS env var.
 from __future__ import annotations
 
 import os
+import stat
 
 import pytest
 
@@ -29,6 +30,39 @@ def test_write_read_roundtrip(tmp_path):
 def test_write_creates_parent_dirs(tmp_path):
     p = write_credentials("sid", "pw", path=tmp_path / "deep" / "nested" / "c.txt")
     assert p.parent.exists() and p.exists()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
+def test_credentials_are_private_before_replacement(tmp_path, monkeypatch):
+    target = tmp_path / "creds.txt"
+    original_replace = os.replace
+    observed = {}
+
+    def inspect_replace(source, destination):
+        observed["temp_mode"] = stat.S_IMODE(os.stat(source).st_mode)
+        observed["temp_path"] = source
+        return original_replace(source, destination)
+
+    monkeypatch.setattr(os, "replace", inspect_replace)
+    write_credentials("sid", "pw", path=target)
+
+    assert observed["temp_mode"] == 0o600
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+    assert not os.path.exists(observed["temp_path"])
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX directory modes")
+def test_default_credentials_directory_is_private(tmp_path, monkeypatch):
+    config_dir = tmp_path / ".sustech_survival"
+    config_dir.mkdir(mode=0o755)
+    os.chmod(config_dir, 0o755)
+    monkeypatch.delenv("SUSTECH_CREDENTIALS", raising=False)
+    monkeypatch.setattr(authorizer._cache, "config_root", lambda: config_dir)
+
+    target = write_credentials("sid", "pw")
+
+    assert target.parent == config_dir
+    assert stat.S_IMODE(config_dir.stat().st_mode) == 0o700
 
 
 def test_write_rejects_colon_or_newline(tmp_path):
@@ -85,6 +119,29 @@ def test_resolve_creds_path_env_wins_over_home(monkeypatch, tmp_path):
     monkeypatch.setenv("SUSTECH_CREDENTIALS", str(tmp_path / "env.txt"))
     monkeypatch.setattr(authorizer._cache, "user_home", lambda: tmp_path)
     assert resolve_creds_path() == tmp_path / "env.txt"
+
+
+def test_authorizer_uses_shared_credentials_with_legacy_skill_dir(monkeypatch, tmp_path):
+    legacy_dir = tmp_path / "legacy"
+    legacy_dir.mkdir()
+    (legacy_dir / "credentials.txt").write_text("old:stale", encoding="utf-8")
+    current = tmp_path / "current.txt"
+    write_credentials("current", "correct", path=current)
+    monkeypatch.setenv("SUSTECH_CREDENTIALS", str(current))
+
+    class DummyAuth(authorizer.Authorizer):
+        BASE_URL = "https://example.invalid"
+        SERVICE_URL = "https://example.invalid/cas"
+
+    auth = DummyAuth(skill_dir=str(legacy_dir))
+    assert auth.read_creds() == ("current", "correct")
+    assert auth._creds_file == current
+
+    authorizer.cred_set("memory", "override")
+    try:
+        assert auth.read_creds() == ("memory", "override")
+    finally:
+        authorizer.cred_clear()
 
 
 # ── cred_set / cred_clear in-memory override ────────────────────────────────
