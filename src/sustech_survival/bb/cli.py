@@ -854,5 +854,11 @@ def download_cmd(content_id, content_opt, course_id, output_dir) -> None:
         click.secho(f"⚠  No downloadable files for content {content_id}.", fg="yellow")
 
 
+# Cross-course read-only assessment views.
+from .assessment_cli import add_commands as _add_assessment_commands
+
+_add_assessment_commands(cli)
+
+
 if __name__ == "__main__":
     cli()

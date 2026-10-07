@@ -23,11 +23,11 @@ _SKILL_ROOT = _Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_SKILL_ROOT / "src"))
 
 __all__ = [
-    "ddl", "query", "download",
+    "ddl", "query", "download", "assessments",
     "submit_file", "submit_assignment", "submit_assignment_rest", "check_attempts",
 ]
 
-from sustech_survival.bb import query, download, ddl
+from sustech_survival.bb import query, download, ddl, assessments
 
 # submit is pure REST now (no Playwright; the legacy Playwright submitter and
 # the bb._playwright module were removed). Lazy-import so the package loads
