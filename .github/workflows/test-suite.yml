@@ -44,3 +44,14 @@ jobs:
           TZ: "Asia/Shanghai"
         run: |
           pytest -m "not live" -ra --strict-markers --strict-config
+
+  desktop-tests:
+    name: "Electron launcher protocol (Node 22)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: "actions/checkout@v5"
+      - uses: "actions/setup-node@v5"
+        with:
+          node-version: "22"
+      - name: "Test desktop configuration and launch flow (mocked)"
+        run: node --test electron/test/*.test.js

@@ -6,6 +6,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "test": "node --test test/*.test.js",
     "build": "electron-builder",
     "build:mac": "electron-builder --mac --publish never",
     "build:win": "electron-builder --win --publish never",
@@ -28,6 +29,7 @@
     },
     "files": [
       "main.js",
+      "desktop.js",
       "preload.js",
       "renderer/**/*",
       "package.json",

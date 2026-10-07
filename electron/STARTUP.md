@@ -94,7 +94,9 @@ Node, **zero** terminal. Just the one .exe.
    - enter SID + password, click **Save** → stored in the Windows
      credential vault (DPAPI), never plaintext on disk
    - pick a skin (default en / default_zh) if desired
-   - that's it — the main webui window opens next.
+   - the main webui window opens after saving; **Open Web UI** also works
+     with credentials configured through the Python CLI.
+   - reopen the panel through **File → Settings…** (`Ctrl+,`).
 
 5. **Use it** — course selection, transit map, etc., all inside the window.
 
