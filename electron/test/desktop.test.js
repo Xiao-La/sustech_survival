@@ -152,3 +152,16 @@ test('saved vault credentials are read on restart and Settings is available from
   await fileMenu.submenu[0].click();
   assert.match(harness.windows[1].url, /renderer\/index.html$/);
 });
+
+
+test('closing the Web UI stops its backend even while Settings remains open', async () => {
+  const harness = mainHarness({ sid: 'saved-fixture', password: 'saved-password' });
+  await harness.ready();
+  const fileMenu = harness.menu().find((item) => item.label === 'File');
+  await fileMenu.submenu[0].click();
+  harness.windows[0].emit('closed');
+  assert.equal(harness.children[0].killed, true);
+  await harness.handlers.get('app:openWebui')(harness.event(harness.windows[1]));
+  assert.equal(harness.children.length, 2);
+  assert.match(harness.windows[2].url, /^http:\/\/127\.0\.0\.1:/);
+});

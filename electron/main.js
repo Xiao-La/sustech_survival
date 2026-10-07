@@ -290,7 +290,7 @@ async function createWindow() {
     return { action: 'deny' };
   });
 
-  mainWindow.on('closed', () => { mainWindow = null; });
+  mainWindow.on('closed', () => { mainWindow = null; stopWebui(); });
 }
 
 // -- Local Settings window and backend configuration ----------------------
@@ -322,7 +322,8 @@ function applyDesktopChanges() {
     if (!mainWindow) return createWindow();
     stopWebui();
     await startWebui();
-    await mainWindow.loadURL(`http://127.0.0.1:${webuiPort}/`);
+    if (mainWindow) await mainWindow.loadURL(`http://127.0.0.1:${webuiPort}/`);
+    else stopWebui();
   });
   backendChanges = change;
   return change;
