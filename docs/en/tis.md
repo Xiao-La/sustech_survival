@@ -310,4 +310,6 @@ Access: ❌ CLI (browser-only)
 
 - [SSO](sso.md) — credential setup and auth infrastructure
 - [Courses](courses.md) — enrolled course data fields
-- [Grades](grades.md) — grade records and GPA calculationPython `run()` CSV exports use `~/.sustech_survival/exports/` (or the relocated `SUSTECH_HOME` root). Classroom commands use the current term unless `--xn` / `--xq` is given; `--json` emits JSON only.
+- [Grades](grades.md) — grade records and GPA calculation
+
+Python `run()` CSV exports use `~/.sustech_survival/exports/` (or the relocated `SUSTECH_HOME` root). Classroom commands use the current term unless `--xn` / `--xq` is given; `--json` emits JSON only.
