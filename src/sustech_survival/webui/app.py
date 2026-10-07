@@ -243,7 +243,7 @@ def _port_owner(host: str, port: int) -> str:
     return ""
 
 
-def run(*, port: int = DEFAULT_PORT, host: str = "0.0.0.0",
+def run(*, port: int = DEFAULT_PORT, host: str = "127.0.0.1",
         transit_data_dir: Optional[str] = None,
         skin: Optional[str] = None,
         skin_path: Optional[str] = None,

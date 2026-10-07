@@ -736,7 +736,7 @@ def _webui_serve_impl(port: Optional[int], host: str, skin: Optional[str],
 
 @webui_cmd.command(name="serve", help="Start the web UI.")
 @click.option("--port", "-p", type=int, default=None, help="Port (default 20129).")
-@click.option("--host", "-H", default="0.0.0.0", show_default=True)
+@click.option("--host", "-H", default="127.0.0.1", show_default=True)
 @click.option("--transit-data", "transit_data_dir", default=None,
               help="Directory of exported transit GeoJSON.")
 @click.option("--skin", "skin", default=None,

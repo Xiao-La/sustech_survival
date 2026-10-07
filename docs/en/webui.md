@@ -30,7 +30,7 @@ of a raw bind-error traceback.
 from sustech_survival.webui.app import create_app, run
 
 app = create_app()           # Flask app for WSGI servers
-run(port=20129, host="0.0.0.0", debug=False)
+run(port=20129, host="127.0.0.1", debug=False)
 ```
 
 ### Routes
@@ -43,3 +43,5 @@ run(port=20129, host="0.0.0.0", debug=False)
 | `/api/tis/ical` | iCal export of picked schedule |
 | `/api/nces/*` | NCES evaluation data endpoints |
 | `/api/transit/*` | Transit data endpoints |
+
+The Web UI binds to `127.0.0.1` by default for use on the same computer. Pass `--host 0.0.0.0` explicitly to share it on a trusted network. The transit proxy serves only PMTiles and glyph files from the SUSTech map-mirror directory; upstream redirects are reported as an error.

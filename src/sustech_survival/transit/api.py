@@ -28,6 +28,19 @@ from flask import (Blueprint, Response, abort, current_app, jsonify,
 from sustech_survival.webui.api_registry import CollectorRegistry
 
 
+def _mirror_url(upstream: str) -> Optional[str]:
+    """Resolve only the map/glyph directory used by the shipped transit skin."""
+    from urllib.parse import unquote, urlsplit
+    target = urlsplit("https://" + upstream)
+    path = unquote(target.path)
+    if (target.netloc != "mirrors.sustech.edu.cn" or target.query or target.fragment
+            or "\\" in path or any(part in (".", "..") for part in path.split("/"))
+            or not path.startswith("/site/pmtiles-data/")
+            or not path.endswith((".pmtiles", ".pbf"))):
+        return None
+    return "https://mirrors.sustech.edu.cn" + target.path
+
+
 def register(reg: CollectorRegistry) -> None:
     """Wire up the transit endpoints under the collector."""
 
@@ -62,12 +75,17 @@ def register(reg: CollectorRegistry) -> None:
     def pmtiles_proxy(upstream: str):
         """CORS proxy for the SUSTech PMTiles basemap mirror."""
         import requests
-        url = "https://" + upstream
+        url = _mirror_url(upstream)
+        if url is None:
+            abort(400, description="Expected a SUSTech PMTiles mirror resource")
         headers = {}
         if "Range" in request.headers:
             headers["Range"] = request.headers["Range"]
         try:
-            r = requests.get(url, headers=headers, timeout=_net.service_timeout("transit"), stream=True)
+            r = requests.get(url, headers=headers, timeout=_net.service_timeout("transit"), stream=True, allow_redirects=False)
+            if 300 <= r.status_code < 400:
+                r.close()
+                return Response("Map mirror redirected unexpectedly", status=502)
             passthrough = ("Content-Type", "Content-Length", "Content-Range",
                            "Accept-Ranges", "ETag", "Last-Modified")
             resp = Response(r.iter_content(chunk_size=64 * 1024),
@@ -76,6 +94,7 @@ def register(reg: CollectorRegistry) -> None:
                 if h in r.headers:
                     resp.headers[h] = r.headers[h]
             resp.headers["Access-Control-Allow-Origin"] = "*"
+            resp.call_on_close(r.close)
             return resp
         except Exception as e:
             return Response(str(e), status=502)
