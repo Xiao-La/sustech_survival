@@ -389,3 +389,29 @@ class TestTTLRefresh:
         ok, reason = auth.ensure()
         assert ok is False
         assert "DummyAuth" in reason
+
+def test_browser_login_uses_configured_timeout_and_redirect(monkeypatch):
+    import sys
+    from types import ModuleType
+    from unittest.mock import Mock, MagicMock
+    from sustech_survival import _net
+    from sustech_survival.sso import Authorizer
+    class BrowserAuth(Authorizer):
+        BASE_URL = "https://service.example.com"
+        SERVICE_URL = "https://service.example.com/cas"
+    page = Mock()
+    page.query_selector.return_value = None
+    browser = Mock()
+    browser.new_context.return_value.new_page.return_value = page
+    browser.new_context.return_value.cookies.return_value = [{"name":"session", "value":"fixture"}]
+    runtime = MagicMock()
+    runtime.__enter__.return_value.chromium.launch.return_value = browser
+    module = ModuleType("playwright.sync_api")
+    module.sync_playwright = lambda: runtime
+    monkeypatch.setitem(sys.modules, "playwright.sync_api", module)
+    monkeypatch.setattr(_net, "page_timeout_ms", lambda service: 1234)
+    auth = BrowserAuth()
+    assert auth.login() is True
+    assert page.goto.call_args.kwargs["timeout"] == 1234
+    page.wait_for_url.assert_called_once_with("https://service.example.com/**", timeout=0)
+    browser.close.assert_called_once()

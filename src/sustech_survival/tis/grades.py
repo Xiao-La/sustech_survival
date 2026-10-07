@@ -6,7 +6,7 @@ SKILL_ROOT = _Path(__file__).resolve().parent.parent.parent.parent
 
 __all__ = ["run"]
 
-from sustech_survival import _net
+from sustech_survival import _cache, _net
 from sustech_survival.exceptions import NetworkError, SessionExpired
 from sustech_survival.sso import TISAuth
 
@@ -153,7 +153,7 @@ def run(semester: str = None, export: str = None):
     """See docs/grades.md."""
     print("🔑 CAS login...")
     try:
-        session = makesession()
+        session = make_session()
     except SessionExpired as e:
         print(f"❌ {e}")
         raise
@@ -187,18 +187,19 @@ def run(semester: str = None, export: str = None):
             row = format_grade_row(c)
             grade_disp = f"{row['等级']:>4}" if row['等级'] else "  N/A"
             score_disp = f"({row['分数']})" if row['分数'] else ""
-            print(f"    {grade_disp} {row['课程'][:35]:<36} {row['学分']}学分")
+            print(f"    {grade_disp} {row['_label'][:35]:<36} {row['学分']}学分")
         print()
 
     if export == "csv":
         import csv
 
-        out = _SKILL_ROOT.parent.parent / "workspace" / "sustech" / "grades.csv"
+        out = _cache.config_root() / "exports" / "grades.csv"
         out.parent.mkdir(parents=True, exist_ok=True)
         fields = ["课程代码", "课程名称", "学期", "学分", "分数", "等级", "性质", "院系"]
         with open(out, "w", newline="", encoding="utf-8-sig") as f:
             w = csv.DictWriter(f, fieldnames=fields)
             w.writeheader()
             for c in courses:
-                w.writerow(format_grade_row(c))
+                row = format_grade_row(c)
+                w.writerow({key: row[key] for key in fields})
         print(f"📄 已导出至 {out}")

@@ -7,7 +7,7 @@ SKILL_ROOT = _Path(__file__).resolve().parent.parent.parent.parent
 
 __all__ = ["run", "get_current_courses"]
 
-from sustech_survival import _net
+from sustech_survival import _cache, _net
 from sustech_survival.exceptions import NetworkError, SessionExpired
 from sustech_survival.sso import TISAuth
 
@@ -95,7 +95,7 @@ def run(semester: str = None, format: str = "table"):
     """See docs/courses.md."""
     print("🔑 CAS login...")
     try:
-        session = makesession()
+        session = make_session()
     except SessionExpired as e:
         print(f"❌ {e}")
         raise
@@ -120,7 +120,7 @@ def run(semester: str = None, format: str = "table"):
     if format == "csv":
         import csv
 
-        out = _SKILL_ROOT.parent.parent / "workspace" / "sustech" / "courses_tis.csv"
+        out = _cache.config_root() / "exports" / "courses_tis.csv"
         out.parent.mkdir(parents=True, exist_ok=True)
         fields = ["课程代码", "课程名称", "学期", "学分", "课程性质", "院系"]
         with open(out, "w", newline="", encoding="utf-8-sig") as f:

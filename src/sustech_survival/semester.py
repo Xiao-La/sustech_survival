@@ -54,13 +54,13 @@ class Semester:
     TIS code structure (9 chars when dashes removed):
       [end_year 4digits][cohort_year 4digits][term 1digit]
 
-      end_year    = calendar year the semester ENDS in
-      cohort_year = the academic year label (Fall cohort = enrollment year)
+      end_year    = first year of the academic-year interval
+      cohort_year = second year of the academic-year interval
       term        = 1(Fall), 2(Spring), 3(Summer)
 
     Examples:
       '2025-20262' → end=2025, cohort=2026, term=2 → Spring 2026  (Feb–Jul 2026)
-      '2025-20261' → end=2025, cohort=2026, term=1 → Fall 2026    (Sep 2026–Jan 2027)
+      '2025-20261' → end=2025, cohort=2026, term=1 → Fall 2025    (Sep 2025–Jan 2026)
       '2025-20263' → end=2025, cohort=2026, term=3 → Summer 2026  (Jul–Aug 2026)
 
     Representations:
@@ -73,14 +73,14 @@ class Semester:
 
     def __init__(self, value: str | int, season: Season | None = None):
         """
-        Construct from a TIS semester code string, or from (cohort_year, season).
+        Construct from a TIS semester code string, or from (calendar_year, season).
 
         String value — parse as TIS code (compact or hyphenated):
             Semester("2025-20262")           → Spring 2026  (term 2)
-            Semester("2025-20261")           → Fall 2026    (term 1)
+            Semester("2025-20261")           → Fall 2025    (term 1)
             Semester("2025-20263")           → Summer 2026  (term 3)
 
-        Integer value — cohort year, requires explicit season:
+        Integer value — calendar year, requires explicit season:
             Semester(2026, Season.SPRING)     → Spring 2026
             Semester(2026, Season.FALL)       → Fall 2026
         """
@@ -103,9 +103,10 @@ class Semester:
                     f"Semester({value}) requires an explicit season. "
                     "Use Semester(year, Season.FALL) or Semester('2025-20262')"
                 )
-            self.cohort_year = int(value)
-            self.season      = season
-            self.end_year    = self.cohort_year + 1 if season is Season.FALL else self.cohort_year
+            year = int(value)
+            self.season = season
+            self.end_year = year if season is Season.FALL else year - 1
+            self.cohort_year = self.end_year + 1
 
     @classmethod
     def current(cls, _today=None) -> "Semester":
