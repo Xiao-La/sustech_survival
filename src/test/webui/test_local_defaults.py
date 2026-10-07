@@ -65,7 +65,7 @@ def test_proxy_reports_redirect_without_following(monkeypatch):
 
 
 def test_unified_cli_defaults_to_loopback(monkeypatch):
-    from sustech_survival.cli.main import cli
+    from sustech_survival.cli import cli
     run = Mock(return_value=0)
     monkeypatch.setattr(app, 'run', run)
     result = CliRunner().invoke(cli, ['webui', 'serve'])
