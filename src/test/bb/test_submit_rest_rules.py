@@ -119,8 +119,9 @@ class TestRule1VerifyAssignmentTarget:
         """verify_assignment_target() must call the project's normaliser
         (not lstrip/rstrip!) and resolve to the numeric core id."""
         from sustech_survival.bb.submit import verify_assignment_target
-        with patch("sustech_survival.bb.download.resolve_course",
-                   return_value="8328"), \
+        with patch("sustech_survival.bb.download.resolve_course") as reverse_lookup, \
+             patch("sustech_survival.bb.query.api",
+                   return_value={"name": "Engineering Probability"}) as course_read, \
              patch("sustech_survival.bb.download.get_content_item",
                    return_value={
                        "id": "_610821_1",
@@ -135,6 +136,9 @@ class TestRule1VerifyAssignmentTarget:
         assert target["content_id"] == "610821"
         assert target["column_id"] == "_777_1"
         assert target["is_assignment"] is True
+        assert target["course_name"] == "Engineering Probability"
+        course_read.assert_called_once_with("/learn/api/public/v1/courses/_8328_1")
+        reverse_lookup.assert_not_called()
 
     def test_rejects_unresolved_content(self):
         """An assignment that doesn't resolve must raise, NOT a silent
@@ -145,6 +149,7 @@ class TestRule1VerifyAssignmentTarget:
         )
         with patch("sustech_survival.bb.download.resolve_course",
                    return_value="8328"), \
+             patch("sustech_survival.bb.query.api", return_value={"name": "EE-100"}), \
              patch("sustech_survival.bb.download.get_content_item",
                    return_value=None), \
              patch("sustech_survival.bb.download.get_column_id_for_content",
@@ -682,3 +687,30 @@ class TestLegacyCallSurface:
             ok, msg = submit_file("610821", str(pdf))
         assert ok is True
         assert "destinationUrl" in msg
+
+
+def test_file_comment_is_in_same_multipart_post(tmp_path):
+    from sustech_survival.bb import submit
+    file = tmp_path / 'report.pdf'
+    file.write_bytes(b'%PDF-1.4 fixture')
+    form = {'form_data': {}, 'file_input_id': 'newFile_LocalFile0',
+            'text_field_names': {'student_comments'}, 'upload_url': _FORM_URL}
+    with patch.object(submit, 'verify_assignment_target', return_value=_target_ok()), \
+         patch.object(submit, '_safe_initial_attempts_count', return_value=0), \
+         patch.object(submit, '_get_upload_form', return_value=form), \
+         patch.object(submit, '_bb_session') as session:
+        session.return_value.post.return_value = _mock_post_response()
+        submit.submit_assignment_rest('8328', '610821', str(file), comment='Thanks <reader>')
+    assert session.return_value.post.call_count == 1
+    payload = session.return_value.post.call_args.kwargs
+    assert payload['data']['student_comments'] == 'Thanks &lt;reader&gt;'
+    assert 'newFile_LocalFile0' in payload['files']
+
+
+def test_editor_submission_resolves_content_to_course():
+    from sustech_survival.bb import submit
+    with patch.object(submit, '_resolve_course_for', return_value='8328') as resolve, \
+         patch.object(submit, 'verify_assignment_target', side_effect=RuntimeError('stop at fixture')) as verify:
+        submit.submit_text('610821', 'My answer')
+    resolve.assert_called_once_with('610821', None)
+    verify.assert_called_once_with('8328', '610821')

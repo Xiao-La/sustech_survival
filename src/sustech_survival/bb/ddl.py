@@ -2,7 +2,7 @@
 bb ddl — Assignment deadlines from Blackboard.
 
 Uses BB REST API exclusively (no Playwright):
-  1. /users/{uid}/courses?termId=_57_1  → enrolled courses (user's actual enrollments)
+  1. /users/{uid}/courses (optional term filter)  → enrolled courses (user's actual enrollments)
   2. /courses/{id}/gradebook/columns   → assignments + ISO due dates + scores
 
 Due dates come as ISO timestamps directly from BB — no regex parsing needed.
@@ -53,63 +53,31 @@ def api(path: str, session=None):
 
 # -- user ID (cached) ----------------------------------------------------------
 
-_uid_cache = None
-
-
 def get_uid(session):
-    """Return current user ID (cached)."""
-    global _uid_cache
-    if _uid_cache:
-        return _uid_cache
-    me = session.get(
-        "https://bb.sustech.edu.cn/learn/api/public/v1/users/me", timeout=_net.service_timeout("bb")
-    )
-    _uid_cache = me.json()["id"]
-    return _uid_cache
+    """Resolve identity from the session used for this read."""
+    from ._collections import current_user_id
+    return current_user_id(session, api)
 
 
-# -- course list --------------------------------------------------------------
-
-def get_courses(session=None, term_id="_57_1"):
-    """Return list of (course_id, course_name) for the current user's enrollments.
-
-    Uses /users/{uid}/courses to get ONLY enrolled courses — not all courses
-    in a term. Then fetches course names in parallel for speed.
-
-    course_id format: "_8157_1" (with underscores, as BB uses them).
-    """
+def get_courses(session=None, term_id=None):
+    """Return the user's complete enrollments, optionally limited to a BB term."""
+    from ._collections import collection
+    from urllib.parse import urlencode
+    if session is None:
+        session = _session()
     uid = get_uid(session)
-    data = api(f"/learn/api/public/v1/users/{uid}/courses?termId={term_id}", session)
-    entries = data.get("results", [])
-    if not entries:
-        return []
-
-    # Fetch course names in parallel via threading
-    import concurrent.futures
-
-    def fetch_name(entry):
+    path = f"/learn/api/public/v1/users/{uid}/courses"
+    if term_id is not None:
+        path += "?" + urlencode({"termId": term_id})
+    entries = collection(path, session, api)
+    courses = []
+    for entry in entries:
         cid = entry["courseId"]
-        try:
-            details = session.get(
-                f"https://bb.sustech.edu.cn/learn/api/public/v1/courses/{cid}",
-                timeout=_net.service_timeout("bb"),
-            )
-            name = details.json().get("name", "?")
-        except Exception:
-            name = "?"
-        return (cid, name)
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
-        futures = {ex.submit(fetch_name, e): e for e in entries}
-        courses = []
-        for fut in concurrent.futures.as_completed(futures):
-            try:
-                cid, name = fut.result()
-                if name and name != "?":
-                    courses.append((cid, name))
-            except Exception:
-                pass
-
+        details = api(f"/learn/api/public/v1/courses/{cid}", session)
+        name = details.get("name")
+        if not name:
+            raise ValueError("BB course detail is missing its name")
+        courses.append((cid, name))
     return courses
 
 
@@ -126,13 +94,14 @@ def get_gradebook_columns(course_id, session=None):
       possible     — max score (float)
       scoring_type — "Attempts" / "Calculated"
     """
-    cols = api(
+    from ._collections import collection
+    cols = collection(
         f"/learn/api/public/v1/courses/{course_id}/gradebook/columns"
         f"?_fields=id,name,contentId,score,grading",
-        session,
+        session, api,
     )
     results = []
-    for col in cols.get("results", []):
+    for col in cols:
         grading = col.get("grading", {})
         due_raw = grading.get("due", "") or ""
         results.append({
@@ -148,14 +117,10 @@ def get_gradebook_columns(course_id, session=None):
 
 def get_user_attempts(course_id, column_id, session=None):
     """Return list of attempt dicts for current user on one column."""
-    try:
-        data = api(
-            f"/learn/api/public/v1/courses/{course_id}/gradebook/columns/{column_id}/attempts",
-            session,
-        )
-        return data.get("results", [])
-    except Exception:
-        return []
+    from ._collections import user_attempts
+    if session is None:
+        session = _session()
+    return user_attempts(course_id, column_id, session, api)
 
 
 # -- date helpers -------------------------------------------------------------
@@ -197,16 +162,11 @@ def upcoming_deadlines(days: int = 30) -> list[dict]:
     now = datetime.now()
     cutoff = now + timedelta(days=days)
 
-    courses = get_courses(session, term_id="_57_1")
-    if not courses:
-        raise _SessionExpired("无法获取课程列表，请重新登录")
+    courses = get_courses(session)
 
     results = []
     for cid, cname in courses:
-        try:
-            cols = get_gradebook_columns(cid, session)
-        except Exception:
-            continue
+        cols = get_gradebook_columns(cid, session)
         for col in cols:
             if col["scoring_type"] != "Attempts" or not col["name"]:
                 continue
@@ -236,11 +196,8 @@ def run(days: int = 7, course_id: str = None):
     now = datetime.now()
     cutoff = now + timedelta(days=days)
 
-    # 1. Get enrolled courses for current term
-    courses = get_courses(session, term_id="_57_1")
-    if not courses:
-        print("❌ 无法获取课程列表，请重新登录")
-        raise _SessionExpired("无法获取课程列表，请重新登录")
+    # 1. Get complete personal enrollments; dates below scope upcoming work.
+    courses = get_courses(session)
 
     # 2. Filter
     if course_id:
@@ -249,10 +206,7 @@ def run(days: int = 7, course_id: str = None):
     all_items = []  # (course_name, name, due_iso, status, score, feedback)
 
     for cid, cname in courses:
-        try:
-            cols = get_gradebook_columns(cid, session)
-        except Exception as e:
-            continue
+        cols = get_gradebook_columns(cid, session)
 
         for col in cols:
             if col["scoring_type"] != "Attempts":
