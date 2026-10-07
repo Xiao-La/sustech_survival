@@ -394,6 +394,7 @@ def test_repeated_pagination_and_login_html_are_incomplete(session):
     session.routes[path] = Response({}, content_type="text/html")
     report = query(session)
     assert "non-JSON" in report["errors"][0]["reason"]
+    assert report["errors"][0]["http_status"] == 200
 
 
 def test_due_bounds_are_inclusive_and_explicitly_exclude_undated(session):

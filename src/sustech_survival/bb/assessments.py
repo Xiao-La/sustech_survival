@@ -59,10 +59,13 @@ class _Reader:
     def __init__(self, session: requests.Session):
         self.session = session
         self.path = ""
+        self.status = None
 
     def get(self, path: str) -> dict:
         self.path = path
+        self.status = None
         response = self.session.get(BASE + path, timeout=_net.service_timeout("bb"))
+        self.status = response.status_code
         response.raise_for_status()
         if "json" not in response.headers.get("content-type", "").lower():
             raise _ReadError("Blackboard returned non-JSON content")
@@ -114,7 +117,8 @@ def _problem(report: dict, reader: _Reader | None, stage: str, exc: Exception, r
             "stage": stage,
             "error": type(exc).__name__,
             "reason": str(exc) if isinstance(exc, _ReadError) else "Blackboard read failed",
-            "http_status": getattr(response, "status_code", None),
+            "http_status": getattr(response, "status_code", None)
+            or (reader.status if reader else None),
             "endpoint": path,
         }
     )
