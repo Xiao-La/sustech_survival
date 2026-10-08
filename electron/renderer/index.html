@@ -18,7 +18,7 @@
   <main>
     <section id="vault-panel">
       <h2>Credentials</h2>
-      <p class="hint">Stored in your OS keychain (macOS Keychain / Windows DPAPI / Linux libsecret).
+      <p class="hint">Encrypted with OS secure storage (macOS Keychain / Windows DPAPI / Linux libsecret).
          Never written to disk in plaintext.</p>
       <label>SID <input id="sid" autocomplete="off"></label>
       <label>Password <input id="password" type="password" autocomplete="off"></label>
@@ -30,6 +30,7 @@
     </section>
 
     <section id="settings-panel">
+      <button id="open-webui">Open Web UI</button>
       <h2>Settings</h2>
       <label>Skin
         <select id="skin">

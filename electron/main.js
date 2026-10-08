@@ -2,7 +2,7 @@
 //
 // Responsibilities:
 //   1. Spawn a bundled portable Python (python-build-standalone) running
-//      `python -m sustech_survival.webui serve --port <free>`.
+//      `python -m sustech_survival.webui._desktop --port <free>`.
 //   2. Open a BrowserWindow pointed at http://127.0.0.1:<port>/.
 //   3. Expose IPC handlers via preload.js for:
 //        - safeStorage credential vault (OS keychain/DPAPI/libsecret)
@@ -17,12 +17,16 @@
 
 'use strict';
 
-const { app, BrowserWindow, ipcMain, safeStorage, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage, dialog, shell, Menu } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const net = require('node:net');
 const { spawn } = require('node:child_process');
 const { autoUpdater } = require('electron-updater');
+
+const desktop = require('./desktop');
+let storePromise;
+const getStore = () => (storePromise ||= desktop.loadStore());
 
 const isDev = !app.isPackaged;
 const RESOURCES = isDev ? path.join(__dirname) : process.resourcesPath;
@@ -39,14 +43,6 @@ function findFreePort() {
       srv.close(() => resolve(port));
     });
   });
-}
-
-// -- Locate the bundled Python interpreter --------------------------------
-
-function bundledPythonDir() {
-  // Bundled portable Python (python-build-standalone) lives under
-  // resources/python/<platform>-<arch>/ — e.g. python/win32-x64/python.exe.
-  return path.join(RESOURCES, 'python', `${process.platform}-${process.arch}`);
 }
 
 // -- Locate the Python interpreter -----------------------------------------
@@ -124,7 +120,7 @@ async function ensureDevPython() {
   // Fast path: reuse a Python that already has the module. Nothing is
   // installed anywhere — the user's envs stay exactly as they are.
   const base = basePythonBinary();
-  if (await runQuiet(base, ['-c', 'import sustech_survival'])) {
+  if (await runQuiet(base, ['-c', 'import sustech_survival.webui._desktop'])) {
     return base;
   }
 
@@ -132,7 +128,7 @@ async function ensureDevPython() {
   // interpreter is only used to create the venv, never polluted).
   const venvPy = venvPythonPath();
   if (fs.existsSync(venvPy)) {
-    if (await runQuiet(venvPy, ['-c', 'import sustech_survival'])) {
+    if (await runQuiet(venvPy, ['-c', 'import sustech_survival.webui._desktop'])) {
       console.log(`[venv] using existing ${venvPy}`);
       return venvPy;
     }
@@ -166,6 +162,8 @@ async function pythonBinary() {
 let webuiProc = null;
 let webuiPort = null;
 let mainWindow = null;
+let settingsWindow = null;
+const settingsPath = path.join(__dirname, 'renderer', 'index.html');
 
 function windowIcon() {
   // Torch-only logo as the window/taskbar icon. Packaged: resources
@@ -196,17 +194,23 @@ async function startWebui() {
     return;
   }
 
-  const args = ['-m', 'sustech_survival.webui', 'serve', '--port', String(webuiPort)];
-  webuiProc = spawn(py, args, {
-    stdio: ['ignore', 'pipe', 'pipe'],
+  const store = await getStore();
+  const launch = desktop.backendLaunch(webuiPort, store.get('active_skin'),
+                                       desktop.readCredentials(store, safeStorage));
+  const child = spawn(py, launch.args, {
+    stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, PYTHONUNBUFFERED: '1' },
   });
 
-  webuiProc.stdout.on('data', (b) => console.log('[webui]', b.toString().trimEnd()));
-  webuiProc.stderr.on('data', (b) => console.error('[webui:err]', b.toString().trimEnd()));
-  webuiProc.on('exit', (code) => {
+  webuiProc = child;
+  child.stdin.on('error', () => console.error('[webui] could not deliver desktop configuration'));
+  child.stdin.end(launch.input);
+  child.on('error', () => console.error('[webui] backend failed to launch'));
+  child.stdout.on('data', (b) => console.log('[webui]', b.toString().trimEnd()));
+  child.stderr.on('data', (b) => console.error('[webui:err]', b.toString().trimEnd()));
+  child.on('exit', (code) => {
     console.log(`[webui] exited with code ${code}`);
-    webuiProc = null;
+    if (webuiProc === child) webuiProc = null;
   });
 
   // Wait up to 10s for the webui to start serving.
@@ -224,16 +228,19 @@ async function startWebui() {
     } catch { /* not ready yet */ }
     await new Promise((r) => setTimeout(r, 200));
   }
+  stopWebui();
   throw new Error(`webui did not start within 10s`);
 }
 
 function stopWebui() {
   if (!webuiProc) return;
+  const child = webuiProc;
+  webuiProc = null;
   try {
     if (process.platform === 'win32') {
-      spawn('taskkill', ['/pid', String(webuiProc.pid), '/t', '/f']);
+      spawn('taskkill', ['/pid', String(child.pid), '/t', '/f']);
     } else {
-      webuiProc.kill('SIGTERM');
+      child.kill('SIGTERM');
     }
   } catch (e) {
     console.error('[webui] kill failed:', e);
@@ -269,7 +276,6 @@ async function createWindow() {
     icon: windowIcon(),
     backgroundColor: '#0f1115',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -284,83 +290,119 @@ async function createWindow() {
     return { action: 'deny' };
   });
 
-  mainWindow.on('closed', () => { mainWindow = null; });
+  mainWindow.on('closed', () => { mainWindow = null; stopWebui(); });
 }
 
-// -- IPC: secure credential vault (OS keychain via safeStorage) ----------
+// -- Local Settings window and backend configuration ----------------------
 
-const STORE_KEY_SID = 'credentials.sid';
-const STORE_KEY_PW = 'credentials.password';
+async function openSettings() {
+  if (settingsWindow) { settingsWindow.focus(); return; }
+  settingsWindow = new BrowserWindow({
+    width: 600, height: 760, title: 'sustech_survival Settings',
+    icon: windowIcon(),
+    webPreferences: { preload: path.join(__dirname, 'preload.js'),
+                      contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  settingsWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  settingsWindow.on('closed', () => { settingsWindow = null; });
+  await settingsWindow.loadFile(settingsPath);
+}
 
-ipcMain.handle('vault:set', (_e, { sid, password }) => {
-  if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error('OS credential vault unavailable on this system');
+function requireSettings(event) {
+  const { pathToFileURL } = require('node:url');
+  if (!settingsWindow || event.sender !== settingsWindow.webContents
+      || event.senderFrame?.url !== pathToFileURL(settingsPath).href) {
+    throw new Error('This operation is available from the local Settings window');
   }
-  const Store = require('electron-store');
-  const store = new Store({ name: 'sustech_survival' });
-  if (sid != null) {
-    if (sid === '') store.delete(STORE_KEY_SID);
-    else store.set(STORE_KEY_SID, safeStorage.encryptString(sid));
-  }
-  if (password != null) {
-    if (password === '') store.delete(STORE_KEY_PW);
-    else store.set(STORE_KEY_PW, safeStorage.encryptString(password));
-  }
+}
+
+let backendChanges = Promise.resolve();
+function applyDesktopChanges() {
+  const change = backendChanges.catch(() => {}).then(async () => {
+    if (!mainWindow) return createWindow();
+    stopWebui();
+    await startWebui();
+    if (mainWindow) await mainWindow.loadURL(`http://127.0.0.1:${webuiPort}/`);
+    else stopWebui();
+  });
+  backendChanges = change;
+  return change;
+}
+
+ipcMain.handle('vault:set', async (event, { sid, password }) => {
+  requireSettings(event);
+  desktop.saveCredentials(await getStore(), safeStorage, sid, password);
+  await applyDesktopChanges();
   return { ok: true };
 });
 
-ipcMain.handle('vault:get', () => {
-  const Store = require('electron-store');
-  const store = new Store({ name: 'sustech_survival' });
-  const out = { sid: '', password: '' };
-  const encSid = store.get(STORE_KEY_SID);
-  const encPw = store.get(STORE_KEY_PW);
-  if (encSid && safeStorage.isEncryptionAvailable()) out.sid = safeStorage.decryptString(Buffer.from(encSid));
-  if (encPw && safeStorage.isEncryptionAvailable()) out.password = safeStorage.decryptString(Buffer.from(encPw));
-  return out;
+ipcMain.handle('vault:get', async (event) => {
+  requireSettings(event);
+  return desktop.readCredentials(await getStore(), safeStorage) || { sid: '', password: '' };
 });
 
-ipcMain.handle('vault:clear', () => {
-  const Store = require('electron-store');
-  const store = new Store({ name: 'sustech_survival' });
-  store.delete(STORE_KEY_SID);
-  store.delete(STORE_KEY_PW);
+ipcMain.handle('vault:clear', async (event) => {
+  requireSettings(event);
+  desktop.clearCredentials(await getStore());
+  if (mainWindow) await applyDesktopChanges();
   return { ok: true };
 });
 
-// -- IPC: settings (active skin, window geometry, etc.) -------------------
-
-ipcMain.handle('settings:get', (_e, key) => {
-  const Store = require('electron-store');
-  const store = new Store({ name: 'sustech_survival' });
-  return store.get(key);
+ipcMain.handle('settings:get', async (event, key) => {
+  requireSettings(event);
+  return (await getStore()).get(key);
 });
 
-ipcMain.handle('settings:set', (_e, { key, value }) => {
-  const Store = require('electron-store');
-  const store = new Store({ name: 'sustech_survival' });
-  store.set(key, value);
+ipcMain.handle('settings:set', async (event, { key, value }) => {
+  requireSettings(event);
+  if (key !== 'active_skin' || !['default', 'default_zh'].includes(value)) {
+    throw new Error('Choose a supported desktop skin');
+  }
+  (await getStore()).set(key, value);
+  if (mainWindow) await applyDesktopChanges();
   return { ok: true };
 });
+
+ipcMain.handle('app:openWebui', async (event) => {
+  requireSettings(event);
+  if (mainWindow) { mainWindow.focus(); return { ok: true }; }
+  await applyDesktopChanges();
+  return { ok: true };
+});
+
+function setupMenu() {
+  const template = [];
+  if (process.platform === 'darwin') template.push({ role: 'appMenu' });
+  template.push({ label: 'File', submenu: [
+    { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: openSettings },
+    { type: 'separator' }, { role: 'quit' },
+  ] }, { role: 'editMenu' }, { role: 'viewMenu' });
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
 
 // -- IPC: Python module upgrade (`pip install --upgrade`) -----------------
 
-ipcMain.handle('python:upgrade', async () => {
+ipcMain.handle('python:upgrade', async (event) => {
+  requireSettings(event);
   const py = await pythonBinary();
-  return new Promise((resolve) => {
-    const proc = spawn(py, ['-m', 'pip', 'install', '--upgrade', 'sustech_survival[webui]'], {
+  const result = await new Promise((resolve) => {
+    const proc = spawn(py, ['-m', 'pip', 'install', '--upgrade', '--force-reinstall', desktop.MODULE_SOURCE], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let out = '', err = '';
     proc.stdout.on('data', (b) => { out += b.toString(); });
     proc.stderr.on('data', (b) => { err += b.toString(); });
+    proc.on('error', () => resolve({ code: 1, stdout: out, stderr: 'Python upgrade could not start' }));
     proc.on('close', (code) => resolve({ code, stdout: out, stderr: err }));
   });
+  if (result.code === 0 && mainWindow) await applyDesktopChanges();
+  return result;
 });
 
 // -- IPC: open log directory ----------------------------------------------
 
-ipcMain.handle('app:openLogs', () => {
+ipcMain.handle('app:openLogs', (event) => {
+  requireSettings(event);
   const logDir = isDev
     ? path.join(__dirname, '..', 'logs')
     : path.join(app.getPath('userData'), 'logs');
@@ -377,17 +419,18 @@ function setupAutoUpdater() {
   autoUpdater.autoInstallOnAppQuit = true;
 
   autoUpdater.on('update-available', (info) => {
-    if (mainWindow) mainWindow.webContents.send('update:available', info);
+    if (settingsWindow) settingsWindow.webContents.send('update:available', info);
   });
   autoUpdater.on('update-downloaded', (info) => {
-    if (mainWindow) mainWindow.webContents.send('update:downloaded', info);
+    if (settingsWindow) settingsWindow.webContents.send('update:downloaded', info);
   });
   autoUpdater.on('error', (err) => {
     console.error('[updater] error:', err);
   });
 }
 
-ipcMain.handle('updater:check', async () => {
+ipcMain.handle('updater:check', async (event) => {
+  requireSettings(event);
   if (isDev) return { skipped: 'dev-mode' };
   try {
     const result = await autoUpdater.checkForUpdates();
@@ -397,7 +440,8 @@ ipcMain.handle('updater:check', async () => {
   }
 });
 
-ipcMain.handle('updater:install', () => {
+ipcMain.handle('updater:install', (event) => {
+  requireSettings(event);
   if (isDev) return { skipped: 'dev-mode' };
   autoUpdater.quitAndInstall();
 });
@@ -406,9 +450,14 @@ ipcMain.handle('updater:install', () => {
 
 app.whenReady().then(async () => {
   setupAutoUpdater();
-  await createWindow();
+  setupMenu();
+  let credentials;
+  try { credentials = desktop.readCredentials(await getStore(), safeStorage); }
+  catch { /* Settings lets the user replace unavailable saved credentials. */ }
+  if (credentials) await createWindow();
+  else await openSettings();
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) openSettings();
   });
 });
 

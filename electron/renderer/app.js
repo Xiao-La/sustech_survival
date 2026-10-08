@@ -12,39 +12,55 @@ const pwEl = document.getElementById('password');
 const skinEl = document.getElementById('skin');
 const updateStatusEl = document.getElementById('update-status');
 
-document.getElementById('save').addEventListener('click', async () => {
+function action(id, work) {
+  document.getElementById(id).addEventListener('click', async () => {
+    try { await work(); }
+    catch (error) { statusEl.textContent = error.message || 'Operation failed'; }
+  });
+}
+
+action('save', async () => {
   await window.sustech.vault.set(sidEl.value.trim(), pwEl.value);
-  statusEl.textContent = 'credentials saved to OS keychain';
+  pwEl.value = '';
+  statusEl.textContent = 'credentials saved; Web UI ready';
 });
 
-document.getElementById('load').addEventListener('click', async () => {
+action('load', async () => {
   const { sid, password } = await window.sustech.vault.get();
   sidEl.value = sid || '';
   pwEl.value = password || '';
-  statusEl.textContent = sid ? 'loaded from keychain' : 'nothing saved yet';
+  statusEl.textContent = sid ? 'loaded saved credentials' : 'nothing saved yet';
 });
 
-document.getElementById('clear').addEventListener('click', async () => {
+action('clear', async () => {
   await window.sustech.vault.clear();
   sidEl.value = '';
   pwEl.value = '';
-  statusEl.textContent = 'cleared';
+  statusEl.textContent = 'desktop credentials cleared';
+});
+
+action('open-webui', async () => {
+  await window.sustech.app.openWebui();
+  statusEl.textContent = 'Web UI opened';
 });
 
 skinEl.addEventListener('change', async () => {
-  await window.sustech.settings.set('active_skin', skinEl.value);
-  statusEl.textContent = `skin set to ${skinEl.value}`;
+  try {
+    await window.sustech.settings.set('active_skin', skinEl.value);
+    statusEl.textContent = `skin set to ${skinEl.value}`;
+  } catch (error) { statusEl.textContent = error.message || 'Skin change failed'; }
 });
 
 (async () => {
   const saved = await window.sustech.settings.get('active_skin');
   if (saved) skinEl.value = saved;
-})();
+  statusEl.textContent = 'ready';
+})().catch((error) => { statusEl.textContent = error.message; });
 
 document.getElementById('check-update').addEventListener('click', async () => {
   updateStatusEl.textContent = 'checking…';
   const r = await window.sustech.updater.check();
-  updateStatusEl.textContent = r.ok ? `latest: v${r.version}` : `error: ${r.error}`;
+  updateStatusEl.textContent = r.skipped ? 'updates disabled in development' : r.ok ? `latest: v${r.version}` : `error: ${r.error}`;
 });
 
 document.getElementById('upgrade-python').addEventListener('click', async () => {
@@ -64,5 +80,3 @@ window.sustech.updater.onAvailable((info) => {
 window.sustech.updater.onDownloaded((info) => {
   updateStatusEl.textContent = `v${info.version} ready — restart to install`;
 });
-
-setTimeout(() => { statusEl.textContent = 'ready'; }, 1500);

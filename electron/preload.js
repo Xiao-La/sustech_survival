@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld('sustech', {
 
   // Misc.
   app: {
+    openWebui: () => ipcRenderer.invoke('app:openWebui'),
     openLogs: () => ipcRenderer.invoke('app:openLogs'),
   },
 });

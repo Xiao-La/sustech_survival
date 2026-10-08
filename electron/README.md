@@ -4,13 +4,13 @@ Friendly launcher that bundles the existing `sustech_survival.webui` Flask app
 inside a native Electron window, so non-technical users can:
 
 - launch the toolkit **without touching a terminal or running pip install**
-- save their CAS SID/password to the **OS keychain** (macOS Keychain,
+- save their CAS SID/password **encrypted with OS secure storage** (macOS Keychain,
   Windows DPAPI, Linux libsecret) — never plaintext to disk
 - pick a UI skin (default / default_zh)
 - get **auto-updates** for the Electron shell itself, via GitHub Releases
   (`dumixthestpd/sustech_survival`)
 - upgrade the embedded Python module from the in-app panel
-  (`pip install --upgrade sustech_survival[webui]`)
+  (the documented Git installation source)
 
 The webui module is **not replaced**. Electron is purely a friendlier shell.
 
@@ -119,3 +119,21 @@ For local builds, auto-update is disabled (`isDev` check in `main.js`).
   before public release.
 - **No GitHub Actions workflow.** Local builds only; CI/release automation
   is a separate task.
+
+## Credentials and settings
+
+The first launch opens the local Settings panel. Save SID/password to open the Web UI,
+or choose **Open Web UI** to use credentials already configured with the Python CLI.
+Use **File → Settings…** (`Cmd/Ctrl+,`) to reopen the panel. Saving credentials or
+changing the skin reloads the Web UI with the new configuration.
+
+Encrypted values are stored in Electron's application settings. The main process
+passes decrypted credentials through the private Python child stdin pipe; the Python
+bootstrap calls `sso.cred_set()` in memory. No credential file or password command-line
+argument is created. Clearing the desktop vault removes its override; existing Python
+CLI credential configuration is still usable. Only the local settings document has
+the native credential bridge.
+
+Developer checks: `npm test` uses Node's built-in runner with simulated Electron,
+storage and child-process interfaces. Python bootstrap regression tests are under
+`src/test/webui/test_desktop_bootstrap.py`. These do not authenticate to campus systems.
