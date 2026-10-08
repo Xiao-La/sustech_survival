@@ -138,3 +138,5 @@ downloading files.
 ## See also
 
 - [SSO](sso.md) — credential setup and auth infrastructure
+
+Deadline reads inspect complete personal enrollments, with no fixed BB term ID; the date window scopes upcoming work. Attempt reads follow pagination and filter the current user. Failed reads or unknown attempt ownership raise errors. A file comment supplied to `apply_submission()` is sent in the same multipart submission, creating one attempt. CSV/display exports are separate from submission.

@@ -566,8 +566,8 @@ def fetch_next_deadline() -> Optional[dict]:
         return None
     except SessionExpired as e:
         return {"error": "auth", "message": str(e), "hint": "sustech sso check"}
-    except Exception:
-        return None
+    except Exception as e:
+        return {"error": "unavailable", "message": str(e), "source": "bb"}
 
 
 def fetch_next_exam() -> Optional[dict]:
