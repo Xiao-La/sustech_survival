@@ -23,7 +23,7 @@ def main() -> int:
     argv = sys.argv[1:]
     debug = "--debug" in argv or "-d" in argv
     port = None
-    host = "0.0.0.0"
+    host = "127.0.0.1"
     transit_data = None
     skin = None
     skin_path = None
