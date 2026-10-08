@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 import json
 from datetime import datetime, timezone
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 import requests
@@ -235,7 +235,9 @@ def test_all_collection_pages_and_attempt_ownership(session):
     assert report["complete"]
     assert len(report["items"][0]["attempts"]) == 1
     assert report["items"][0]["attempts"][0]["grading_pending"]
-    assert any("userId=" + UID in url for url, _ in session.calls)
+    attempt_urls = [url for url, _ in session.calls if urlsplit(url).path.endswith("/attempts")]
+    assert len(attempt_urls) == 2
+    assert all("userId" not in parse_qs(urlsplit(url).query) for url in attempt_urls)
     assert UID not in json.dumps(report)
 
 
@@ -534,3 +536,48 @@ def test_due_bounds_and_report_preserve_subsecond_precision(session):
     assert report["items"][0]["due"] == "2026-10-07T12:00:00.500000+08:00"
     assert report["scope"]["due_from"] == lower.isoformat()
     assert report["scope"]["due_until"] == upper.isoformat()
+
+
+@pytest.mark.parametrize("mode", ["pending", "grades"])
+def test_attempt_query_works_when_user_filter_is_forbidden(session, monkeypatch, mode):
+    # Model the deployed API: the same GET succeeds without the optional filter.
+    records = [attempt(score=99, owner="_other_1")]
+    if mode == "grades":
+        records.append(attempt(score=8, aid="_own_1"))
+    session.add(1, records)
+    get = session.get
+
+    def deployed_get(url, **kwargs):
+        response = get(url, **kwargs)
+        target = urlsplit(url)
+        if target.path.endswith("/attempts") and "userId" in parse_qs(target.query):
+            return Response({}, status=403)
+        return response
+
+    monkeypatch.setattr(session, "get", deployed_get)
+    report = query(session, mode)
+    assert report["complete"]
+    assert not report["errors"]
+    row = report["items"][0]
+    if mode == "pending":
+        assert row["state"] == "unsubmitted"
+        assert row["attempts"] == []  # Another student's work is not our submission.
+    else:
+        assert [a["score"] for a in row["attempts"]] == [8]
+    attempt_urls = [url for url, _ in session.calls if urlsplit(url).path.endswith("/attempts")]
+    assert len(attempt_urls) == 1
+    assert parse_qs(urlsplit(attempt_urls[0]).query) == {"limit": ["200"]}
+
+
+@pytest.mark.parametrize("mode", ["pending", "grades"])
+def test_real_attempt_permission_failure_is_not_retried(session, mode):
+    prefix, column, _ = session.add(1, [attempt(score=8)])
+    path = prefix + f"/gradebook/columns/{column}/attempts"
+    session.routes[path] = Response({}, status=403)
+    report = query(session, mode)
+    assert not report["complete"]
+    assert report["items"] == []
+    assert report["errors"][0]["stage"] == "attempts"
+    assert report["errors"][0]["http_status"] == 403
+    assert report["unknown"][0]["reason"] == "attempts_unavailable"
+    assert len([url for url, _ in session.calls if urlsplit(url).path == path]) == 1

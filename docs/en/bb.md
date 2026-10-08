@@ -86,6 +86,10 @@ assessments from drafts. Optional inclusive due bounds require ISO timestamps
 with an offset; applying either bound excludes undated tasks and reports that
 window. It reads gradebook columns with `grading.type == Attempts`, content
 metadata, the user's grade records (including exemptions) and all own attempts.
+For compatibility with SUSTech BB, attempts GETs omit the optional `userId`
+query filter, which can return 403 for student sessions. Every returned page
+is still checked for attempt ownership and filtered locally to the current
+user. Actual permission failures remain errors; there is no automatic retry.
 Ordinary assignments and test/assignment links are included with distinct
 `kind` labels. A test link is not silently presented as a written assignment.
 

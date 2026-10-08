@@ -318,9 +318,10 @@ def _collect_course(
             _unknown(report, row, "external_submission")
             continue
         try:
+            # SUSTech BB can reject the optional userId query filter with 403.
+            # Read all pages and validate/filter each row's owner below instead.
             attempts = reader.pages(
-                prefix + f"/gradebook/columns/{quote(column_id, safe='')}/attempts"
-                f"?userId={quote(user_id, safe='')}&limit=200"
+                prefix + f"/gradebook/columns/{quote(column_id, safe='')}/attempts?limit=200"
             )
         except Exception as exc:
             _problem(report, reader, "attempts", exc, row)
