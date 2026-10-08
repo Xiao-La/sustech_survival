@@ -142,3 +142,14 @@ def test_cli_preview_dispatch_takes_content_id_and_file(tmp_path):
     assert preview.call_args.args[0] == "637897"
     assert preview.call_args.args[1] == str(report)
     assert "nothing uploaded" in result.output
+
+
+def test_apply_passes_comment_with_file_in_one_call(report_file):
+    digest = submit_mod.sha256_of_file(report_file)
+    with patch.object(submit_mod, 'submit_assignment_rest') as rest, \
+         patch.object(submit_mod, 'submit_comment') as separate_comment:
+        submit_mod.apply_submission('637897', str(report_file), course_id='8613',
+                                    expected_sha256=digest, confirm=True, comment='My comment')
+    assert rest.call_count == 1
+    assert rest.call_args.kwargs['comment'] == 'My comment'
+    separate_comment.assert_not_called()

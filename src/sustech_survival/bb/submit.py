@@ -346,15 +346,17 @@ def verify_assignment_target(course_id: str, content_id: str) -> dict:
           "is_assignment": bool,
         }
     """
-    from .download import (
-        resolve_course, get_content_item, get_column_id_for_content,
-    )
+    from .download import get_content_item, get_column_id_for_content
+    from .query import api
 
     cid = _num_id(course_id)
     content = _num_id(content_id)
     course_name = ""
     try:
-        course_name = resolve_course(cid) or ""
+        # cid is already a course ID. resolve_course() takes a CONTENT ID
+        # and scans enrolled courses; using it here both mislabels the
+        # course_name and performs unnecessary reverse lookups.
+        course_name = api(f"/learn/api/public/v1/courses/_{cid}_1").get("name", "") or ""
     except Exception:
         course_name = ""
 
@@ -406,39 +408,27 @@ def _is_no_attempts_404(exc: BaseException) -> bool:
 
 
 def _safe_initial_attempts_count(course_id: str, column_id: Optional[str]) -> int:
-    """R1: list the existing attempts for a column. Returns 0 only after the
-    assignment AND the upload form have been verified, AND the attempts
-    endpoint itself returned 404 (the documented "no attempts yet" shape).
-    Every other error propagates as-is.
-
-    The project-level ``get_assignment_attempts`` swallows every error and
-    returns [] — but for R1 we must distinguish "no attempts yet" from a
-    genuine REST failure (auth lost, server error, JSON parse error), so
-    we call the public attempts endpoint directly and check the response
-    status here.
-    """
+    """Count this student's complete attempt list; keep failed reads explicit."""
     if not column_id:
-        return 0
+        raise SubmissionFormError(
+            "Assignment grade column could not be identified",
+            stage="verify_target", code="BLACKBOARD_GRADE_COLUMN_UNKNOWN",
+        )
     from sustech_survival.bb.query import api
     from sustech_survival.bb.session import session
+    from sustech_survival.bb._collections import user_attempts
     bid = course_id if course_id.startswith("_") else f"_{course_id}_1"
     col_id = column_id if column_id.startswith("_") else f"_{column_id}_1"
-    sess = session()
-    try:
-        data = api(
-            f"/learn/api/public/v1/courses/{bid}/gradebook/columns/{col_id}/attempts",
-            sess,
-        )
-    except requests.HTTPError as e:  # 4xx/5xx with .response attached
-        if _is_no_attempts_404(e):
-            return 0
-        # All other errors stay errors. Re-raise so the caller surfaces them.
-        raise
-    except Exception:
-        # Non-HTTP error (network, JSON parse). R1: stay an error.
-        raise
-    results = data.get("results", []) or []
-    return len(results)
+    # Only an attempts-endpoint 404 can mean no attempts. Identity failures
+    # must propagate rather than being mistaken for a blank assignment.
+    def fetch(path, sess):
+        try:
+            return api(path, sess)
+        except requests.HTTPError as exc:
+            if path.split("?", 1)[0].endswith("/attempts") and _is_no_attempts_404(exc):
+                return {"results": []}
+            raise
+    return len(user_attempts(bid, col_id, session(), fetch))
 
 
 def _strip_html_for_error(text: str) -> str:
@@ -706,6 +696,7 @@ def submit_assignment_rest(
     dry_run: bool = False,
     skip_dedup: bool = False,
     reviewed_sha256: Optional[str] = None,
+    comment: Optional[str] = None,
 ):
     """REST-based BB submission. End-to-end working as of 2026-06-08.
 
@@ -719,6 +710,7 @@ def submit_assignment_rest(
             under this name before POSTing.
         dry_run: if True, GET the form + simulate the POST, but don't actually
             submit. Returns a DRY_RUN SubmitResult.
+        comment: optional comment included with the file in the same attempt.
         skip_dedup: no-op for the REST path (REST doesn't do a per-attempt
             dedup like the old Playwright path did). Preserved for API parity.
         reviewed_sha256: optional SHA-256 from a prior dry-run / preview.
@@ -824,6 +816,16 @@ def submit_assignment_rest(
                 submissionPostSent=False,
             )
         form_data = dict(form_info["form_data"])
+        if comment:
+            field = _pick_editor_field(
+                set(form_info.get("text_field_names", ())), _COMMENT_EDITOR_CANDIDATES,
+            )
+            if not field:
+                raise SubmissionFormError(
+                    "BB upload form did not expose a comment editor field",
+                    stage="prepare_form", code="BLACKBOARD_COMMENT_FIELD_MISSING",
+                )
+            form_data[field] = _escape_for_bb_editor(comment)
         print(f"  Form: {len(form_data)} hidden fields, file_input_id={form_info['file_input_id']!r}")
 
         # Step 2: add the file-picker fields (mimics what BB's JS does
@@ -1034,16 +1036,7 @@ def _submit_editor_field(content_id: str, *,
     post_attempted = False
     try:
         cid = _num_id(content_id) if content_id else ""
-        resolved_course_id: Optional[str] = course_id
-        if resolved_course_id is None:
-            try:
-                resolved_course_id = _core_id_safe(content_id) if content_id else None
-            except Exception:
-                resolved_course_id = None
-            if resolved_course_id is None:
-                from .download import resolve_course
-                resolved_course_id = resolve_course(cid)
-        resolved_course_id = resolved_course_id or ""
+        resolved_course_id = _resolve_course_for(content_id, course_id)
         target = verify_assignment_target(resolved_course_id, cid)
 
         form_info = _get_upload_form(target["course_id"], target["content_id"])
@@ -1415,14 +1408,8 @@ def apply_submission(content_id, file_path, course_id=None, submitted_name=None,
         str(path),
         name_override=submitted_name,
         reviewed_sha256=reviewed,
+        comment=comment,
     )
-    if comment and result:
-        comment_result = submit_comment(_num_id(content_id), comment)
-        if not comment_result:
-            return result.with_message(
-                f"{result.message} (file submitted; comment failed: "
-                f"{comment_result.message})"
-            )
     return result
 
 

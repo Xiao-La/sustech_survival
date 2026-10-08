@@ -295,9 +295,10 @@ def get_assignment_attempts(course_id, column_id):
     sess = session()
     bid = course_id if course_id.startswith("_") else f"_{course_id}_1"
     col_id = column_id if column_id.startswith("_") else f"_{column_id}_1"
-    data = api(f"/learn/api/public/v1/courses/{bid}/gradebook/columns/{col_id}/attempts", sess)
+    from ._collections import user_attempts
+    attempts = user_attempts(bid, col_id, sess, api)
     results = []
-    for i, att in enumerate(data.get("results", [])):
+    for i, att in enumerate(attempts):
         results.append((
             att["id"].lstrip("_"),
             i + 1,

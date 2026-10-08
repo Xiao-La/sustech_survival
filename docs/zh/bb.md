@@ -66,3 +66,5 @@ grades = query('grades', course_ids=['101', '102'])
 if not pending['complete']:
     print(pending['unknown'], pending['errors'])
 ```
+
+截止日期查询读取完整的个人选课列表，不固定 BB 学期 ID，再按日期窗口筛选。尝试列表读取全部分页并过滤当前用户；读取失败或无法确认归属时会报错。`apply_submission()` 的文件与附带评论在同一次请求中提交，只创建一次尝试。
