@@ -395,7 +395,7 @@ def submit_bids(self, picks: dict, *,
             results.append({
                 "rwh": rwh,
                 "bid": bid,
-                "ok": res.get("jg") == "1" or res.get("dry_run"),
+                "ok": str(res.get("jg")) == "1" or bool(res.get("dry_run")),
                 "message": res.get("message", ""),
                 "dry_run": res.get("dry_run", False),
             })

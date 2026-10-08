@@ -573,6 +573,7 @@ class Authorizer(ABC):
     def login(self, *, headless: bool = False):
         """Playwright headful login — stores cookies in memory only."""
         from playwright.sync_api import sync_playwright
+        from sustech_survival import _net
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=headless)
             ctx = browser.new_context()
@@ -582,21 +583,23 @@ class Authorizer(ABC):
 
             captcha = page.query_selector('[id*="captcha"], .g-recaptcha, [src*="captcha"]')
             if captcha:
-                print("⚠️  Captcha detected at CAS page — use ensure() / refresh() instead")
+                print("⚠️  Captcha detected at CAS page — complete login interactively")
                 browser.close()
                 return False
 
             print(f"Browser opened — log in via CAS for {self.BASE_URL}")
             print("Waiting for redirect...")
             try:
-                page.wait_for_url(f"**/{self.BASE_URL}**", timeout=0)
+                page.wait_for_url(f"{self.BASE_URL.rstrip('/')}/**", timeout=0)
             except Exception:
-                pass
+                browser.close()
+                return False
             page.wait_for_timeout(2000)
             cookies = {c['name']: c['value'] for c in ctx.cookies()}
             self._set_session(cookies)
             cls = self.__class__.__name__
             print(f"✅ {cls} login complete ({len(cookies)} cookies)")
+            browser.close()
             return True
 
     # ── @ensured decorator ───────────────────────────────────────────────────

@@ -83,7 +83,7 @@ from sustech_survival.tis.grades import run
 
 run()                        # all semesters, table output
 run(semester='2025秋季')     # one semester
-run(export='csv')            # exports to grades.csv
+run(export='csv')            # ~/.sustech_survival/exports/grades.csv
 ```
 
 GPA is calculated using SUSTech's official 4.0 scale (A=3.94, A-=3.67, ...). See [grades.md](grades.md) for the full GPA table.
@@ -311,3 +311,5 @@ Access: ❌ CLI (browser-only)
 - [SSO](sso.md) — credential setup and auth infrastructure
 - [Courses](courses.md) — enrolled course data fields
 - [Grades](grades.md) — grade records and GPA calculation
+
+Python `run()` CSV exports use `~/.sustech_survival/exports/` (or the relocated `SUSTECH_HOME` root). Classroom commands use the current term unless `--xn` / `--xq` is given; `--json` emits JSON only.

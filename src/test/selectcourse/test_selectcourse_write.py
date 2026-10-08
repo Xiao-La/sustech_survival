@@ -531,3 +531,12 @@ class TestPublicExports:
         # use p_xktjz=rwtjzyx (NOT the previously-assumed rwtjzgwc).
         assert sc_mod.XKTJZ_TASK_TO_CART == "rwtjzyx"
         assert sc_mod.XKTJZ_TASK_TO_CART == sc_mod.XKTJZ_TASK_TO_ENROLLED
+
+
+@pytest.mark.parametrize("jg", [1, "1"])
+def test_batch_bids_accept_both_success_shapes(monkeypatch, jg):
+    from sustech_survival.selectcourse import writes
+    monkeypatch.setattr(writes, "update_bid", lambda *a, **kw: {"jg": jg})
+    result = writes.submit_bids(object(), {"task1": 2}, dry_run=False)
+    assert result["ok"] is True
+    assert result["results"][0]["ok"] is True

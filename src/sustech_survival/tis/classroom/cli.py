@@ -195,12 +195,12 @@ def book(room, day, periods, clock_start, clock_end, week, headcount,
             "--campus", campus]
     if day is not None:
         argv += ["--day", str(day)]
-    for p in periods:
-        argv += ["--period", str(p)]
+    if periods:
+        argv += ["--period", *map(str, periods)]
     argv += _opt("clock-start", clock_start)
     argv += _opt("clock-end", clock_end)
-    for w in week:
-        argv += ["--week", str(w)]
+    if week:
+        argv += ["--week", *map(str, week)]
     argv += _opt("start-date", start_date)
     argv += _opt("end-date", end_date)
     argv += _opt("applicant-name", applicant_name)
@@ -242,8 +242,8 @@ def search_rooms(week, day, periods, campus, building, min_cap,
             "--week", str(week),
             "--day", str(day),
             "--campus", campus]
-    for p in periods:
-        argv += ["--period", str(p)]
+    if periods:
+        argv += ["--period", *map(str, periods)]
     argv += _opt("building", building)
     argv += _opt("min-cap", min_cap)
     argv += ["--tiered", tiered]

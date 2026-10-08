@@ -87,3 +87,11 @@ def test_semester_string_parsing():
     assert s.season is Season.SPRING
     assert s.cohort_year == 2026
     assert s.end_year == 2025
+
+@pytest.mark.parametrize("season,month", [(Season.FALL, 10), (Season.SPRING, 3), (Season.SUMMER, 8)])
+def test_calendar_year_constructor_matches_current(season, month):
+    integer = Semester(2026, season)
+    current = Semester.current(date(2026, month, 7))
+    assert integer == current
+    assert integer.human.startswith("2026 ")
+    assert Semester(integer.tis) == integer
