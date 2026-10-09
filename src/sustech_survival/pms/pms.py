@@ -276,9 +276,9 @@ class PMSClient:
                        PAPER_A3 (8) / "A3"
                        PAPER_UNSPECIFIED (-1) / "不指定" / "" / "unspecified"
             duplex:    DUPLEX_SINGLE (1) / "single" / "单面"
-                       DUPLEX_SHORT_EDGE (2) / "short" / "双面短边"
-                       DUPLEX_LONG_EDGE (3) / "long" / "双面长边"
-                       These follow upload-page labels; physical edge unverified.
+                       DUPLEX_SHORT_EDGE (3) / "short" / "双面短边"
+                       DUPLEX_LONG_EDGE (2) / "long" / "双面长边"
+                       These match the PMS queue list labels.
             page_from: 0 = all pages; otherwise the start page (1-indexed).
             page_to:   end page (1-indexed); ignored when page_from == 0.
             copies:    number of copies, 1+.
@@ -508,8 +508,8 @@ class PrintUploadResult:
             flag = "❌ failed"
         duplex_label = {
             DUPLEX_SINGLE: "单面",
-            DUPLEX_SHORT_EDGE: "双面短边（网页选项，翻页方向未验证）",
-            DUPLEX_LONG_EDGE: "双面长边（网页选项，翻页方向未验证）",
+            DUPLEX_SHORT_EDGE: "双面短边",
+            DUPLEX_LONG_EDGE: "双面长边",
         }.get(self.duplex, "—")
         return (
             f"### {self.file_name} — {flag}\n"
@@ -567,9 +567,9 @@ def _coerce_duplex(v) -> int:
     s = str(v).strip().lower()
     if s in ("single", "单面", "1"):
         return DUPLEX_SINGLE
-    if s in ("short", "双面短边", "2"):
+    if s in ("short", "双面短边", "3"):
         return DUPLEX_SHORT_EDGE
-    if s in ("long", "双面长边", "3"):
+    if s in ("long", "双面长边", "2"):
         return DUPLEX_LONG_EDGE
     raise ValueError(f"Unknown duplex: {v!r}")
 

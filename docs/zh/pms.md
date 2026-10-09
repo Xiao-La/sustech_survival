@@ -61,16 +61,22 @@ print(receipt.status, receipt.job_id, receipt.verification_url)
 不能仅凭 `ok=False` 重传。上传只创建队列任务，不触发实际打印。
 正确队列页面为 <https://pms.sustech.edu.cn/client/new/cprintPc/printDoc.html>。
 
-## 双面参数的证据范围
+## 双面参数与队列显示
 
-上传网页将 `dwDuplex=2` 标为短边、`3` 标为长边，现有 `short`、`long`
-别名及常量保留这个参数约定。真实上传回读确认了 `2 → vdup`、`3 → hdup`。
-但上传页、队列页的长短边文字和翻译编号互相冲突，因此仍不能确认打印机的
-实际翻页方向，也不能据此直接交换参数或将 `hdup` 断言为短边。
+客户端以 PMS 队列列表的长短边显示为准：
 
-队列保留 `duplex_flag`，显示“双面（原始标记；长短边未确认）”，
-`duplex_edge=None`；缺失或冲突的单双面标记返回 `is_duplex=None`。
-上传预览会说明这是网页选项，实际翻页方向未经验证。
+| 选项 | `dwDuplex` | 队列标记 | 队列显示 |
+| --- | --- | --- | --- |
+| `"single"` / `DUPLEX_SINGLE` | 1 | `single` | 单面 |
+| `"long"` / `"双面长边"` / `DUPLEX_LONG_EDGE` | 2 | `vdup` | 双面长边 |
+| `"short"` / `"双面短边"` / `DUPLEX_SHORT_EDGE` | 3 | `hdup` | 双面短边 |
+
+数字及数字字符串直接使用同一参数值。上传页的长短边标签与列表相反，
+字符串别名、预览及队列显示均遵循列表含义。本次修正了原来的
+`long=3`、`short=2` 别名和常量映射；直接传入数字的调用保持原数值。
+
+队列保留 `duplex_flag`，`vdup` 的 `duplex_edge="long"`，`hdup` 为 `"short"`。
+缺失或冲突的单双面标记仍返回 `is_duplex=None`、`duplex_edge=None`。
 
 其他方法见 [英文指南](../en/pms.md)。删除打印或扫描任务会更改账号状态，
 需要另外获得授权。

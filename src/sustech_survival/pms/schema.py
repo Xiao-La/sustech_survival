@@ -23,12 +23,11 @@ PAPER_A3 = 8
 COLOR_BW = 1
 COLOR_COLOR = 2
 
-# dwDuplex values follow the upload form options. The deployed upload and
-# queue pages disagree on long/short-edge text; these are wire aliases, not
-# a verified statement about physical printer binding.
+# Match the PMS queue list: 2 -> vdup/long edge, 3 -> hdup/short edge.
+# The upload page reverses these labels; use the queue convention throughout.
 DUPLEX_SINGLE = 1
-DUPLEX_SHORT_EDGE = 2
-DUPLEX_LONG_EDGE = 3
+DUPLEX_SHORT_EDGE = 3
+DUPLEX_LONG_EDGE = 2
 
 # dwProperty bitmask for printer capabilities (printDev.js, backGong)
 PROPERTY_PRINT = 1
@@ -206,10 +205,10 @@ class PrintJob:
     dw_total_pages: int = 0   # total across all paper sizes
     is_color: bool = False
     is_duplex: Optional[bool] = None
-    duplex_label: str = ""    # Queue duplex state; edge is unverified
+    duplex_label: str = ""    # Matches the PMS queue list
     date_str: str = ""
     time_str: str = ""
-    duplex_flag: str = ""     # Preserve the server token without guessing binding
+    duplex_flag: str = ""     # Preserve the server token
     duplex_edge: Optional[str] = None
 
     @classmethod
@@ -227,11 +226,15 @@ class PrintJob:
         attribe = raw.get("szAttribe", "") or ""
         flags = {f.strip() for f in attribe.split(",") if f.strip()}
         duplex_flags = flags & {"vdup", "hdup"}
+        duplex_edge = None
         if "single" in flags and not duplex_flags:
             duplex_flag, duplex_label, is_duplex = "single", "单面", False
         elif len(duplex_flags) == 1 and "single" not in flags:
             duplex_flag = next(iter(duplex_flags))
-            duplex_label = f"双面（{duplex_flag}；长短边未确认）"
+            duplex_edge, duplex_label = {
+                "vdup": ("long", "双面长边"),
+                "hdup": ("short", "双面短边"),
+            }[duplex_flag]
             is_duplex = True
         else:
             duplex_flag = ",".join(sorted(duplex_flags | (flags & {"single"})))
@@ -273,6 +276,7 @@ class PrintJob:
             is_duplex=is_duplex,
             duplex_label=duplex_label,
             duplex_flag=duplex_flag,
+            duplex_edge=duplex_edge,
             date_str=date_str,
             time_str=time_str,
         )

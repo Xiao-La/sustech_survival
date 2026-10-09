@@ -71,19 +71,24 @@ this API does not trigger physical printing.
 
 Queue verification URL: <https://pms.sustech.edu.cn/client/new/cprintPc/printDoc.html>.
 
-## Duplex values and unresolved edge semantics
+## Duplex values and queue labels
 
-The upload form labels `dwDuplex=2` as short edge and `3` as long edge. Existing
-`duplex="short"`/`"long"` aliases and constants retain those values. Live queue
-round trips returned `2 -> vdup` and `3 -> hdup`. However, the upload and queue
-pages disagree on the edge labels and their translation IDs. These observations
-do not verify the printer's physical binding direction.
+The client follows the PMS queue list's long/short-edge labels:
 
-Consequently, queue records retain `duplex_flag` and report duplex with
-`duplex_edge=None` and an explicit unconfirmed-edge label. They do not silently
-swap the values or assert that `hdup` means short edge. Missing/conflicting
-flags yield `is_duplex=None`. Upload previews identify the website option and
-also state that the physical edge is unverified.
+| Option | `dwDuplex` | Queue flag | Queue label |
+| --- | --- | --- | --- |
+| `"single"` / `DUPLEX_SINGLE` | 1 | `single` | 单面 |
+| `"long"` / `"双面长边"` / `DUPLEX_LONG_EDGE` | 2 | `vdup` | 双面长边 |
+| `"short"` / `"双面短边"` / `DUPLEX_SHORT_EDGE` | 3 | `hdup` | 双面短边 |
+
+Numeric inputs and numeric strings use the same wire value. The upload page
+reverses the queue's edge labels; aliases, previews and queue records all use
+the queue convention. This corrects the previous `long=3` / `short=2` alias
+and constant mapping. Callers using raw numeric values keep those values.
+
+Queue records preserve `duplex_flag` and expose `duplex_edge="long"` for `vdup`
+and `"short"` for `hdup`. Missing or conflicting flags remain unknown
+(`is_duplex=None`, `duplex_edge=None`).
 
 Other client methods: `list_server_groups()`, `list_stations(group_sn=None)`,
 `list_scan_jobs()`, `history(begin=..., end=...)`, `delete_print_job(job_id)` and

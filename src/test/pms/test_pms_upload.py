@@ -5,7 +5,7 @@ import json
 import pytest
 import requests
 
-from sustech_survival.pms import PMSClient, PMSError
+from sustech_survival.pms import PMSClient, PMSError, PrintJob
 from sustech_survival.pms.pms import PMS_QUEUE_URL
 
 
@@ -19,12 +19,12 @@ def reply(payload=None, status=200, location=None, html=False):
     return r
 
 
-def job(job_id=2, name="PMS_TEST.pdf"):
+def job(job_id=2, name="PMS_TEST.pdf", flag="vdup"):
     return {
         "dwJobId": job_id,
         "szJobName": name,
         "dwCopies": 1,
-        "szAttribe": "hdup,",
+        "szAttribe": f"{flag},",
         "szPaperDetail": '[{"dwPaperID":9,"dwBWPages":2,"dwColorPages":0,"dwPaperNum":1}]',
     }
 
@@ -83,7 +83,7 @@ def test_new_queue_job_confirms_upload_despite_bad_response(file, response):
     assert result.observed_job_ids == [2]
     assert len(session.posts) == 1
     assert len(session.gets) == 2
-    assert session.posts[0][1]["data"]["dwDuplex"] == "3"
+    assert session.posts[0][1]["data"]["dwDuplex"] == "2"
 
 
 @pytest.mark.parametrize(
@@ -157,9 +157,46 @@ def test_unavailable_before_snapshot_sends_no_upload(file):
     assert session.posts == []
 
 
-def test_dry_run_has_no_io_and_preserves_short_form_value(file):
+def test_dry_run_has_no_io_and_uses_queue_short_edge_value(file):
     session = Session([], [], None)
     result = PMSClient(session).upload_print(file, duplex="short", dry_run=True)
-    assert result.duplex == 2
+    assert result.duplex == 3
     assert result.status == "dry_run" and result.uploaded is False
     assert not session.gets and not session.posts
+
+
+@pytest.mark.parametrize(
+    "duplex,code,flag,edge,label,other_label",
+    [
+        (2, 2, "vdup", "long", "双面长边", "双面短边"),
+        ("2", 2, "vdup", "long", "双面长边", "双面短边"),
+        ("long", 2, "vdup", "long", "双面长边", "双面短边"),
+        ("双面长边", 2, "vdup", "long", "双面长边", "双面短边"),
+        (3, 3, "hdup", "short", "双面短边", "双面长边"),
+        ("3", 3, "hdup", "short", "双面短边", "双面长边"),
+        ("short", 3, "hdup", "short", "双面短边", "双面长边"),
+        ("双面短边", 3, "hdup", "short", "双面短边", "双面长边"),
+    ],
+)
+def test_duplex_preview_wire_value_and_queue_label_agree(
+    file, duplex, code, flag, edge, label, other_label
+):
+    raw_job = job(flag=flag)
+    session = Session([], [raw_job], reply({"code": 0}))
+    client = PMSClient(session)
+    preview = client.upload_print(file, duplex=duplex, dry_run=True)
+    assert preview.duplex == code
+    assert f"{label}; dwDuplex={code}" in preview.to_markdown()
+    assert other_label not in preview.to_markdown()
+    assert not session.gets and not session.posts
+
+    receipt = client.upload_print(file, duplex=duplex)
+    assert receipt.ok and receipt.job_id == raw_job["dwJobId"]
+    assert len(session.posts) == 1
+    assert session.posts[0][1]["data"]["dwDuplex"] == str(code)
+    assert f"{label}; dwDuplex={code}" in receipt.to_markdown()
+    queued = PrintJob.from_api(raw_job)
+    assert queued.duplex_flag == flag and queued.is_duplex is True
+    assert queued.duplex_edge == edge and queued.duplex_label == label
+    assert label in queued.to_markdown()
+    assert other_label not in queued.to_markdown()
